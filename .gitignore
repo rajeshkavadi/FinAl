@@ -1,0 +1,9 @@
+# Never commit personal financial data or generated reports
+*.xlsx
+*.xlsm
+*.csv
+dashboard*.html
+!sample_data/example_portfolio.csv
+__pycache__/
+*.pyc
+.venv/

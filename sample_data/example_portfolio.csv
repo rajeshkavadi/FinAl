@@ -1,0 +1,11 @@
+Stock,Sector/Theme,Price,Invested,Risk Flag,Notes
+Alpha Bank,Financials / Bank,520,300000,Medium,Core financial holding
+Beta NBFC,NBFC / Microfinance,180,700000,High,Oversized single position (illustrative)
+Gamma Tech,IT - Services,1400,250000,Medium,IT services
+Delta Soft,IT - Software,900,250000,Medium-High,Adds to IT concentration
+Epsilon Cargo,Logistics / Cargo,1300,400000,Very High,Highly volatile micro-cap
+Zeta Metals,Metals Recycling,1500,200000,Medium,Category leader
+Theta EPC,Power Transmission EPC,15,150000,Very High,Turnaround / speculative
+Theta EPC (tranche 2),Power Transmission EPC,15,120000,Very High,Averaging into same name
+Iota Retail,QSR / Consumer,320,40000,Medium,Small position
+Kappa Micro,Unclear/Micro-cap,350,40000,Very High,Thin coverage
