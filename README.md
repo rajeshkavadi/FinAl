@@ -113,6 +113,36 @@ even if the direct leg alone doesn't. Names are matched fuzzily (Ltd/Limited/
 India suffixes normalised); un-named/cash holdings count toward the base but
 aren't attributed to a stock.
 
+## Monitoring ("constantly monitor")
+`monitor.py` snapshots the portfolio each run, diffs it against the last
+snapshot, evaluates alert rules, and dispatches **new** alerts (per-alert
+cooldown prevents spam) to pluggable notifiers.
+
+**Alerts:** single-stock / sector concentration breach (uses look-through when
+available), position down since last check, portfolio down since last check,
+drawdown from peak, single-day price move, **LTCG-eligibility crossing** (sell
+after this date for 12.5% vs 20%), and any live high-severity suggestion.
+
+**Notifiers** (stdlib, chosen via env): console (always), markdown log file,
+SMTP email, and HTTP webhook (Slack/Discord/Zapier).
+
+```bash
+# one shot (cron/systemd friendly)
+python monitor.py portfolio.xlsx --live
+
+# loop every 30 min, log to a file
+PORTFOLIO_ALERT_LOG=alerts.md python monitor.py portfolio.xlsx --live --watch 30
+
+# weekday 9:30 IST via cron, Slack + email
+# 30 9 * * 1-5  PORTFOLIO_WEBHOOK_URL=... SMTP_HOST=... ALERT_TO=you@x.com \
+#   python /path/monitor.py /path/portfolio.xlsx --live
+```
+Env: `PORTFOLIO_ALERT_LOG`, `PORTFOLIO_WEBHOOK_URL`, `SMTP_HOST` / `SMTP_PORT` /
+`SMTP_USER` / `SMTP_PASS` / `ALERT_FROM` / `ALERT_TO`. State (snapshots, peaks,
+cooldowns) persists in `~/.portfolio_monitor/state.json` (`--state` to override,
+`--cooldown` hours to tune re-fire frequency). For true always-on monitoring,
+drive the one-shot form from cron / systemd timer / Windows Task Scheduler.
+
 ## Architecture
 ```
 analyzer/
@@ -124,8 +154,12 @@ analyzer/
   prices.py      optional live providers: Yahoo (equity), AMFI (MF NAV)
   analytics.py   concentration, HHI, sector/theme/risk, P/L, look-through
   rules.py       transparent, threshold-driven suggestion engine
+  state.py       snapshots, peaks, and alert cooldowns (JSON)
+  alerts.py      alert rules (level + change triggers)
+  notify.py      notifiers: console / file / email / webhook
   report.py      self-contained HTML dashboard
-run.py           CLI
+run.py           analysis CLI (one-shot dashboard)
+monitor.py       monitoring CLI (snapshot + diff + alert + notify; --watch)
 tests/           smoke tests over the bundled sample
 ```
 
@@ -135,7 +169,8 @@ tests/           smoke tests over the bundled sample
       ₹1.25L LTCG exemption, loss set-off within term)
 - [x] MF↔equity look-through overlap (fund constituents vs direct stocks →
       true per-stock exposure + hidden-concentration flags)
-- [ ] Scheduled refresh + email/push alerts ("constantly monitor")
+- [x] Scheduled refresh + email/webhook alerts ("constantly monitor")
+- [ ] Live fetcher for fund compositions (so factsheets aren't hand-entered)
 - [ ] Broker/CAS auto-sync (Zerodha Kite, MF Central) as an import source
 ```
 ```

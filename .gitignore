@@ -3,6 +3,10 @@
 *.xlsm
 *.csv
 dashboard*.html
+# monitor runtime artifacts
+alerts*.md
+*state*.json
+.portfolio_monitor/
 !sample_data/example_portfolio.csv
 __pycache__/
 *.pyc

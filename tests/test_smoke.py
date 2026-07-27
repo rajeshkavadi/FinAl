@@ -175,6 +175,52 @@ def test_lookthrough_base_and_attribution():
     assert round(lt.matched_fund_value + lt.unattributed) == round(fund_val)
 
 
+def test_monitor_seeds_and_alerts(tmp_path=None):
+    import tempfile
+    from analyzer.alerts import AlertConfig, apply_cooldown, evaluate
+    from analyzer.state import MonitorState, Snapshot
+    d = tmp_path or Path(tempfile.mkdtemp())
+    state = MonitorState.load(d / "state.json")
+
+    pf, a, sugs = _analyse()
+    cfg = AlertConfig(cooldown_hours=24)
+    alerts = evaluate(a, sugs, state, cfg)
+    # Beta NBFC concentration (28.6%) must raise a high concentration alert
+    assert any(al.category == "concentration" and "Beta" in al.holding for al in alerts)
+
+    fresh = apply_cooldown(alerts, state, cfg.cooldown_hours)
+    assert fresh                                   # first run -> everything fresh
+    # same run again -> cooldown suppresses the repeats
+    again = apply_cooldown(evaluate(a, sugs, state, cfg), state, cfg.cooldown_hours)
+    assert not again
+
+    state.update_peaks(pf)
+    state.last_snapshot = Snapshot.from_portfolio(pf)
+    state.save()
+    assert (d / "state.json").exists()
+
+
+def test_monitor_detects_drop():
+    import tempfile
+    from analyzer.alerts import AlertConfig, evaluate
+    from analyzer.state import MonitorState, Snapshot
+    d = Path(tempfile.mkdtemp())
+    state = MonitorState.load(d / "state.json")
+
+    pf = load(SAMPLE)
+    state.update_peaks(pf)
+    state.last_snapshot = Snapshot.from_portfolio(pf)
+
+    # crash one holding's price ~30%
+    target = next(h for h in pf.equities() if h.name == "Gamma Tech")
+    target.price = target.price * 0.7
+
+    a = Analysis(pf)
+    alerts = evaluate(a, [], state, AlertConfig())
+    cats = {al.category for al in alerts if al.holding == "Gamma Tech"}
+    assert "move" in cats or "drawdown" in cats
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):
