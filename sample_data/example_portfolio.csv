@@ -1,11 +1,11 @@
-Stock,Sector/Theme,Price,Invested,Risk Flag,Notes
-Alpha Bank,Financials / Bank,520,300000,Medium,Core financial holding
-Beta NBFC,NBFC / Microfinance,180,700000,High,Oversized single position (illustrative)
-Gamma Tech,IT - Services,1400,250000,Medium,IT services
-Delta Soft,IT - Software,900,250000,Medium-High,Adds to IT concentration
-Epsilon Cargo,Logistics / Cargo,1300,400000,Very High,Highly volatile micro-cap
-Zeta Metals,Metals Recycling,1500,200000,Medium,Category leader
-Theta EPC,Power Transmission EPC,15,150000,Very High,Turnaround / speculative
-Theta EPC (tranche 2),Power Transmission EPC,15,120000,Very High,Averaging into same name
-Iota Retail,QSR / Consumer,320,40000,Medium,Small position
-Kappa Micro,Unclear/Micro-cap,350,40000,Very High,Thin coverage
+Stock,Sector/Theme,Quantity,Price,Invested,Buy Date,Risk Flag,Notes
+Alpha Bank,Financials / Bank,600,520,300000,2024-01-15,Medium,Core financial holding
+Beta NBFC,NBFC / Microfinance,4000,180,700000,2023-11-02,High,Oversized single position (illustrative)
+Gamma Tech,IT - Services,200,1400,250000,2024-03-20,Medium,IT services
+Delta Soft,IT - Software,300,900,250000,2024-06-10,Medium-High,Adds to IT concentration
+Epsilon Cargo,Logistics / Cargo,250,1300,400000,2025-01-08,Very High,Highly volatile micro-cap
+Zeta Metals,Metals Recycling,140,1500,200000,2024-09-01,Medium,Category leader
+Theta EPC,Power Transmission EPC,12000,15,150000,2024-02-14,Very High,Turnaround / speculative
+Theta EPC (tranche 2),Power Transmission EPC,9000,15,120000,2024-08-14,Very High,Averaging into same name
+Iota Retail,QSR / Consumer,130,320,40000,2025-03-01,Medium,Small position
+Kappa Micro,Unclear/Micro-cap,120,350,40000,2025-02-01,Very High,Thin coverage

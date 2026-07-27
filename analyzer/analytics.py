@@ -38,6 +38,32 @@ class Concentration:
     pct: float
 
 
+@dataclass
+class PLRow:
+    name: str
+    invested: float
+    current_value: float
+    pl: float
+    return_pct: float
+    annualised: float | None = None
+
+
+@dataclass
+class PLSummary:
+    rows: list["PLRow"]
+    invested: float
+    current_value: float
+    total_pl: float | None
+    total_return_pct: float | None
+    coverage: float            # fraction of holdings that could be marked to market
+    winners: list["PLRow"]
+    losers: list["PLRow"]
+
+    @property
+    def has_data(self) -> bool:
+        return bool(self.rows)
+
+
 def _breakdown(items: dict[str, float], total: float) -> list[Concentration]:
     out = [Concentration(k, v, (v / total if total else 0)) for k, v in items.items()]
     out.sort(key=lambda c: c.value, reverse=True)
@@ -103,6 +129,56 @@ class Analysis:
             cat[s.category or "Uncategorised"] += (s.monthly_sip or 0)
         self.sip_by_category = _breakdown(cat, sip_total)
         self.sip_total_monthly = sip_total
+
+        # ---- P/L summary (over market-valued holdings only) ------------
+        self.pl = self._profit_and_loss()
+
+    def _profit_and_loss(self) -> "PLSummary":
+        mv = self.pf.market_valued()
+        rows: list[PLRow] = []
+        for h in mv:
+            rows.append(PLRow(
+                name=h.name,
+                invested=h.invested,
+                current_value=h.current_value,
+                pl=h.unrealised_pl or 0.0,
+                return_pct=h.return_pct or 0.0,
+                annualised=h.annualised_return,
+            ))
+        rows.sort(key=lambda r: r.pl, reverse=True)
+        invested = sum(r.invested for r in rows)
+        value = sum(r.current_value for r in rows)
+        return PLSummary(
+            rows=rows,
+            invested=invested,
+            current_value=value,
+            total_pl=(value - invested) if rows else None,
+            total_return_pct=((value - invested) / invested) if invested else None,
+            coverage=(len(mv) / len(self.pf.holdings)) if self.pf.holdings else 0.0,
+            winners=[r for r in rows if r.pl > 0],
+            losers=[r for r in rows if r.pl < 0],
+        )
+
+    def portfolio_xirr(self) -> float | None:
+        """Money-weighted return across holdings/SIPs that carry dates.
+
+        Lumpsum holdings contribute an outflow at ``buy_date`` and an inflow of
+        current value today; SIPs contribute synthesized monthly outflows plus
+        their current corpus. Returns None if no dated cashflows exist.
+        """
+        from datetime import date
+        from .returns import sip_cashflows, xirr
+        flows: list[tuple[date, float]] = []
+        today = date.today()
+        for h in self.pf.market_valued():
+            if h.buy_date:
+                flows.append((h.buy_date, -abs(h.invested)))
+                flows.append((today, abs(h.current_value)))
+        for s in self.pf.sips:
+            if s.sip_start and s.monthly_sip and s.current_value:
+                flows.extend(sip_cashflows(
+                    s.monthly_sip, s.sip_start, today, s.current_value))
+        return xirr(flows) if flows else None
 
     # ---- overlap detection -------------------------------------------------
     def duplicate_positions(self) -> list[tuple[str, list[Holding]]]:

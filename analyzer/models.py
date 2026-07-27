@@ -6,6 +6,7 @@ hard dependency on pandas. Amounts are in the account currency (INR by default).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date as _date
 from enum import Enum
 from typing import Optional
 
@@ -44,6 +45,9 @@ class Holding:
     category: str = ""            # MF category (Flexi Cap, Small Cap, ...)
     price: Optional[float] = None
     quantity: Optional[float] = None
+    avg_cost: Optional[float] = None   # average buy price per unit
+    buy_date: Optional[_date] = None   # earliest acquisition date (for CAGR/XIRR)
+    sip_start: Optional[_date] = None  # for SIP-accumulated XIRR
     risk_flag: Optional[str] = None
     verdict: Optional[str] = None   # Hold / Review / Strong Hold / ...
     notes: str = ""
@@ -52,6 +56,17 @@ class Holding:
     scheme_code: Optional[str] = None  # AMFI code for live NAV lookups
     # SIP-specific
     monthly_sip: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        # Reconcile the invested / quantity / avg_cost triangle: given any two,
+        # derive the third so downstream P/L is consistent.
+        if self.invested in (None, 0) and self.quantity and self.avg_cost:
+            self.invested = float(self.quantity) * float(self.avg_cost)
+        elif self.avg_cost in (None, 0) and self.quantity:
+            try:
+                self.avg_cost = float(self.invested) / float(self.quantity)
+            except (ZeroDivisionError, TypeError):
+                pass
 
     # ---- derived -------------------------------------------------------
     @property
@@ -74,6 +89,22 @@ class Holding:
         if self.valued_on_market:
             return self.current_value - self.invested
         return None
+
+    @property
+    def return_pct(self) -> Optional[float]:
+        """Absolute (not annualised) return on cost, as a fraction."""
+        pl = self.unrealised_pl
+        if pl is None or not self.invested:
+            return None
+        return pl / float(self.invested)
+
+    @property
+    def annualised_return(self) -> Optional[float]:
+        """CAGR from ``buy_date`` to today, when a market value is known."""
+        if not self.valued_on_market or not self.buy_date or not self.invested:
+            return None
+        from .returns import cagr
+        return cagr(self.invested, self.current_value, self.buy_date)
 
 
 @dataclass
@@ -99,3 +130,35 @@ class Portfolio:
     @property
     def total_monthly_sip(self) -> float:
         return sum((h.monthly_sip or 0) for h in self.sips)
+
+    # ---- P/L aggregates (only over market-valued holdings) --------------
+    def market_valued(self) -> list["Holding"]:
+        return [h for h in self.holdings if h.valued_on_market]
+
+    @property
+    def invested_market(self) -> float:
+        """Cost basis of the holdings we can actually mark to market."""
+        return sum(h.invested for h in self.market_valued())
+
+    @property
+    def value_market(self) -> float:
+        return sum(h.current_value for h in self.market_valued())
+
+    @property
+    def total_unrealised_pl(self) -> Optional[float]:
+        mv = self.market_valued()
+        if not mv:
+            return None
+        return self.value_market - self.invested_market
+
+    @property
+    def total_return_pct(self) -> Optional[float]:
+        pl = self.total_unrealised_pl
+        if pl is None or not self.invested_market:
+            return None
+        return pl / self.invested_market
+
+    @property
+    def fully_valued(self) -> bool:
+        """True when every holding can be marked to market (qty + price)."""
+        return bool(self.holdings) and all(h.valued_on_market for h in self.holdings)

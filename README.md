@@ -44,10 +44,19 @@ work. Recognised sheets/columns:
 
 - **SIPs / MF sheet**: `Fund` · `Category` · `Monthly SIP` · `Verdict` · `Notes`
 - **Direct Equity sheet**: `Stock` · `Sector/Theme` · `Price` · `Invested` ·
-  (optional) `Quantity` · `Risk Flag` · `Notes`
+  (optional) `Quantity` · `Avg Cost` · `Buy Date` · `Risk Flag` · `Notes`
 
-If `Quantity` + a live price are available, positions are valued at market;
-otherwise the analyzer uses the invested/cost basis (and says so).
+Valuation upgrades automatically with the data you provide:
+
+| You supply | You get |
+|------------|---------|
+| Invested + Price only | concentration / sector / risk / overlap (cost basis) |
+| **+ Quantity** | current market value, **unrealised P/L** (₹ and %), winners/losers |
+| **+ Buy Date** | per-holding **CAGR** and portfolio **XIRR** (money-weighted) |
+
+Given any two of *Invested / Quantity / Avg Cost*, the third is derived. SIPs
+with a `SIP Start` date and current corpus contribute synthesized monthly
+cashflows to the XIRR.
 
 ## What it checks (rules)
 | Rule | Fires when |
@@ -76,7 +85,7 @@ tests/           smoke tests over the bundled sample
 ```
 
 ## Roadmap
-- [ ] Quantities → true current value, unrealised P/L, and XIRR
+- [x] Quantities → true current value, unrealised P/L (absolute & %), CAGR/XIRR
 - [ ] MF↔equity look-through overlap (fund factsheet holdings vs direct stocks)
 - [ ] STCG/LTCG tax estimate on each suggested switch
 - [ ] Scheduled refresh + email/push alerts ("constantly monitor")

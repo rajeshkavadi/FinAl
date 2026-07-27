@@ -33,6 +33,65 @@ def _bars(rows, total, palette="#3b82f6") -> str:
     return "".join(out)
 
 
+def _signed(x: float) -> str:
+    return f"{'+' if x >= 0 else '−'}₹{abs(x):,.0f}"
+
+
+def _pl_color(x: float) -> str:
+    return "#067647" if x >= 0 else "#b42318"
+
+
+def _pl_section(a) -> str:
+    pl = a.pl
+    if not pl.has_data:
+        return ('<div class="card"><p class="muted">No holdings could be marked to '
+                'market yet. Add a <strong>Quantity</strong> column (and optionally '
+                '<strong>Buy Date</strong>) to your import to unlock current value, '
+                'profit/loss, and XIRR.</p></div>')
+
+    xirr = a.portfolio_xirr()
+    cov = pl.coverage
+    kpis = [
+        ("Invested", _rupees(pl.invested), "var(--ink)"),
+        ("Current value", _rupees(pl.current_value), "var(--ink)"),
+        ("Unrealised P/L", _signed(pl.total_pl or 0), _pl_color(pl.total_pl or 0)),
+        ("Return", f"{(pl.total_return_pct or 0)*100:+.1f}%", _pl_color(pl.total_return_pct or 0)),
+    ]
+    if xirr is not None:
+        kpis.append(("XIRR (money-weighted)", f"{xirr*100:+.1f}%", _pl_color(xirr)))
+    kpi_html = "".join(
+        f'<div class="kpi"><div class="kpiv" style="color:{c}">{v}</div>'
+        f'<div class="kpil">{k}</div></div>' for k, v, c in kpis)
+
+    def _rows(rows):
+        out = []
+        for r in rows:
+            ann = (f' · {r.annualised*100:+.1f}%/yr' if r.annualised is not None else "")
+            out.append(f"""
+            <div class="barrow plrow">
+              <div class="barlabel">{html.escape(r.name)}</div>
+              <div class="barval" style="color:{_pl_color(r.pl)}">{_signed(r.pl)}
+                ({r.return_pct*100:+.1f}%{ann})</div>
+            </div>""")
+        return "".join(out) or '<p class="muted">—</p>'
+
+    cov_note = ""
+    if cov < 1.0:
+        cov_note = (f'<p class="muted" style="margin-top:10px">P/L covers '
+                    f'{cov*100:.0f}% of holdings (those with quantity + price). '
+                    f'Add quantities for the rest to complete the picture.</p>')
+
+    return f"""
+    <div class="kpis" style="margin-bottom:6px">{kpi_html}</div>
+    <div class="card">
+      <div class="pltwo">
+        <div><div class="plh">Top gainers</div>{_rows(pl.winners[:5])}</div>
+        <div><div class="plh">Top losers</div>{_rows(pl.losers[:5])}</div>
+      </div>
+      {cov_note}
+    </div>"""
+
+
 def _suggestions_html(sugs: list[Suggestion]) -> str:
     if not sugs:
         return '<p class="muted">No rules triggered — the book is within all configured guidelines.</p>'
@@ -108,6 +167,10 @@ h2{{font-size:17px;margin:30px 0 12px}}
 .chips{{margin:6px 0}}
 .chip{{display:inline-block;background:#f2f4f7;color:#344054;font-size:12px;padding:2px 8px;border-radius:6px;margin:2px 4px 2px 0}}
 .pill{{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}}
+.pltwo{{display:grid;grid-template-columns:1fr 1fr;gap:24px}}
+@media(max-width:620px){{.pltwo{{grid-template-columns:1fr}}}}
+.plh{{font-size:13px;font-weight:650;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.03em}}
+.plrow{{grid-template-columns:1fr auto}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
 <h1>{html.escape(title)}</h1>
@@ -116,6 +179,9 @@ h2{{font-size:17px;margin:30px 0 12px}}
 <span class="pill" style="background:#fffaeb;color:#b54708">{warn_flags} review</span></div>
 
 <div class="kpis">{kpi_html}</div>
+
+<h2>Profit &amp; loss</h2>
+{_pl_section(a)}
 
 <h2>Restructuring suggestions</h2>
 {_suggestions_html(sugs)}

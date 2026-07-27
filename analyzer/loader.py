@@ -10,10 +10,29 @@ broker/export headers still work. A generic CSV loader is also provided.
 from __future__ import annotations
 
 import csv
+import datetime as _dt
 from pathlib import Path
 from typing import Optional
 
 from .models import AssetType, Holding, Portfolio
+
+
+def _date(v) -> Optional[_dt.date]:
+    """Parse a date cell across common formats; tolerate blanks/datetimes."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    if isinstance(v, _dt.datetime):
+        return v.date()
+    if isinstance(v, _dt.date):
+        return v
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y",
+                "%d-%b-%Y", "%d %b %Y", "%Y/%m/%d"):
+        try:
+            return _dt.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _num(v) -> Optional[float]:
@@ -103,6 +122,8 @@ def _parse_equity(rows: list[list]) -> list[Holding]:
     i_price = _find(hdr, "price", "ltp")
     i_inv = _find(hdr, "invested", "value", "cost", "amount")
     i_qty = _find(hdr, "qty", "quantity", "units", "shares")
+    i_avg = _find(hdr, "avg cost", "avg price", "buy price", "avg buy", "cost/unit")
+    i_bdate = _find(hdr, "buy date", "purchase date", "acquired", "date")
     i_risk = _find(hdr, "risk")
     i_notes = _find(hdr, "note")
     out: list[Holding] = []
@@ -116,6 +137,8 @@ def _parse_equity(rows: list[list]) -> list[Holding]:
             sector=str(cells[i_sec]).strip() if i_sec is not None and cells[i_sec] else "Uncategorised",
             price=_num(cells[i_price]) if i_price is not None else None,
             quantity=_num(cells[i_qty]) if i_qty is not None else None,
+            avg_cost=_num(cells[i_avg]) if i_avg is not None else None,
+            buy_date=_date(cells[i_bdate]) if i_bdate is not None else None,
             risk_flag=str(cells[i_risk]).strip() if i_risk is not None and cells[i_risk] else None,
             notes=str(cells[i_notes]).strip() if i_notes is not None and cells[i_notes] else "",
         ))
@@ -127,6 +150,9 @@ def _parse_funds(rows: list[list]) -> list[Holding]:
     i_name = _find(hdr, "fund", "scheme", "name")
     i_cat = _find(hdr, "category")
     i_inv = _find(hdr, "invested", "value", "cost", "amount", "corpus")
+    i_units = _find(hdr, "units", "quantity", "qty")
+    i_nav = _find(hdr, "nav", "price")
+    i_isin = _find(hdr, "isin")
     i_risk = _find(hdr, "risk")
     i_notes = _find(hdr, "note")
     out: list[Holding] = []
@@ -139,6 +165,9 @@ def _parse_funds(rows: list[list]) -> list[Holding]:
             invested=_num(cells[i_inv]) or 0.0 if i_inv is not None else 0.0,
             category=str(cells[i_cat]).strip() if i_cat is not None and cells[i_cat] else "",
             sector="Mutual Fund",
+            quantity=_num(cells[i_units]) if i_units is not None else None,
+            price=_num(cells[i_nav]) if i_nav is not None else None,
+            isin=str(cells[i_isin]).strip() if i_isin is not None and cells[i_isin] else None,
             risk_flag=str(cells[i_risk]).strip() if i_risk is not None and cells[i_risk] else None,
             notes=str(cells[i_notes]).strip() if i_notes is not None and cells[i_notes] else "",
         ))
