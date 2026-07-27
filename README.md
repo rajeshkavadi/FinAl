@@ -113,6 +113,32 @@ even if the direct leg alone doesn't. Names are matched fuzzily (Ltd/Limited/
 India suffixes normalised); un-named/cash holdings count toward the base but
 aren't attributed to a stock.
 
+### Getting compositions automatically
+Instead of hand-entering `--fund-holdings`, point the app at the **monthly
+portfolio disclosure** every AMC publishes (SEBI-mandated). It parses the
+spreadsheet, keeps equity constituents (drops debt / TREPS / cash / totals via
+name + rating heuristics), scales `% to Net Assets` to weights, and caches the
+result (holdings change ~monthly, so refetching daily is pointless):
+
+```bash
+# parse a folder of downloaded disclosure files (xlsx/csv), cache the result
+python run.py portfolio.xlsx --funds funds.csv \
+  --disclosures ./disclosures --comp-cache ~/.portfolio_monitor/comp_cache.json
+
+# later runs need only the cache (served if <35 days old)
+python run.py portfolio.xlsx --funds funds.csv \
+  --comp-cache ~/.portfolio_monitor/comp_cache.json
+
+# or fetch each fund's disclosure from a URL template
+python run.py portfolio.xlsx --funds funds.csv \
+  --compositions-url "https://data.example.com/{fund}.xlsx" \
+  --comp-cache ~/.portfolio_monitor/comp_cache.json
+```
+Resolution order per fund: **cache → local disclosure file → HTTP provider**.
+The same flags work on `monitor.py`. There is no single official holdings API in
+India, so this targets the disclosure files (and any URL you have rights to);
+scraping third-party sites is intentionally not built in.
+
 ## Monitoring ("constantly monitor")
 `monitor.py` snapshots the portfolio each run, diffs it against the last
 snapshot, evaluates alert rules, and dispatches **new** alerts (per-alert
@@ -151,6 +177,7 @@ analyzer/
   returns.py     XIRR / CAGR / SIP cashflow synthesis
   tax.py         STCG/LTCG switch-tax estimator (Sec 111A / 112A)
   lookthrough.py MF constituents -> combined true exposure + overlaps
+  compositions_fetch.py  parse AMC monthly disclosures + cache + HTTP provider
   prices.py      optional live providers: Yahoo (equity), AMFI (MF NAV)
   analytics.py   concentration, HHI, sector/theme/risk, P/L, look-through
   rules.py       transparent, threshold-driven suggestion engine
@@ -170,7 +197,7 @@ tests/           smoke tests over the bundled sample
 - [x] MF↔equity look-through overlap (fund constituents vs direct stocks →
       true per-stock exposure + hidden-concentration flags)
 - [x] Scheduled refresh + email/webhook alerts ("constantly monitor")
-- [ ] Live fetcher for fund compositions (so factsheets aren't hand-entered)
+- [x] Live fetcher for fund compositions (parse AMC monthly disclosures; cache)
 - [ ] Broker/CAS auto-sync (Zerodha Kite, MF Central) as an import source
 ```
 ```

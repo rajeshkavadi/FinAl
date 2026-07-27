@@ -42,6 +42,13 @@ def main(argv=None) -> int:
     ap.add_argument("--fund-holdings", dest="fund_holdings", default="",
                     help="CSV/JSON of fund compositions (Fund, Stock, Weight[, Sector]) "
                          "for MF<->equity look-through")
+    ap.add_argument("--disclosures", default="",
+                    help="folder of AMC monthly portfolio-disclosure files to parse "
+                         "into fund compositions")
+    ap.add_argument("--compositions-url", dest="comp_url", default="",
+                    help="URL template ({fund}) to fetch a disclosure per fund")
+    ap.add_argument("--comp-cache", default="",
+                    help="path to cache fetched compositions (freshness ~35d)")
     args = ap.parse_args(argv)
 
     pf = load(args.input)
@@ -55,6 +62,24 @@ def main(argv=None) -> int:
     if args.fund_holdings:
         from analyzer.lookthrough import load_compositions
         compositions = load_compositions(args.fund_holdings)
+
+    if args.disclosures or args.comp_url or args.comp_cache:
+        from analyzer.compositions_fetch import (
+            CompositionCache, HttpCompositionProvider, discover_disclosures,
+            fetch_compositions)
+        fund_names = [f.name for f in pf.funds()]
+        disc = discover_disclosures(args.disclosures) if args.disclosures else {}
+        # a disclosure file may not match a holding name exactly; also expose
+        # disclosure funds even when no matching MF holding is loaded
+        fund_names = list(dict.fromkeys(fund_names + list(disc.keys())))
+        provider = HttpCompositionProvider(args.comp_url) if args.comp_url else None
+        cache = CompositionCache(args.comp_cache) if args.comp_cache else None
+        fetched = fetch_compositions(fund_names, disclosures=disc,
+                                     provider=provider, cache=cache)
+        compositions = {**(compositions or {}), **fetched}
+        print(f"[compositions] resolved {len(fetched)} fund(s) "
+              f"(disclosures={len(disc)}, url={'yes' if provider else 'no'})",
+              file=sys.stderr)
 
     if args.live:
         from analyzer.prices import enrich_live

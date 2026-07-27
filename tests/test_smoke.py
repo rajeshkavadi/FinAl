@@ -175,6 +175,55 @@ def test_lookthrough_base_and_attribution():
     assert round(lt.matched_fund_value + lt.unattributed) == round(fund_val)
 
 
+DISCLOSURE = ROOT / "sample_data" / "example_disclosure_orion.csv"
+
+
+def test_parse_disclosure_filters_debt_and_scales():
+    from analyzer.compositions_fetch import parse_disclosure
+    fc = parse_disclosure(DISCLOSURE)
+    names = {c.name for c in fc.holdings}
+    # equity kept, debt/TREPS/receivables/total dropped
+    assert "Gamma Tech Ltd" in names and "Alpha Bank Ltd" in names
+    assert not any("GOI" in n or "TREPS" in n or "Total" in n for n in names)
+    assert len(fc.holdings) == 5
+    # 8.00% -> 0.08 fraction
+    gamma = next(c for c in fc.holdings if c.name.startswith("Gamma"))
+    assert abs(gamma.weight - 0.08) < 1e-9
+    assert fc.fund and "Orion" in fc.fund
+
+
+def test_fetch_compositions_cache_roundtrip(tmp_path=None):
+    import tempfile
+    from analyzer.compositions_fetch import (CompositionCache, discover_disclosures,
+                                             fetch_compositions)
+    from analyzer.lookthrough import norm
+    d = tmp_path or Path(tempfile.mkdtemp())
+    cache = CompositionCache(d / "comp_cache.json")
+    disc = discover_disclosures(DISCLOSURE.parent)
+    funds = list(disc.keys())
+    comps = fetch_compositions(funds, disclosures=disc, cache=cache)
+    assert comps                                   # resolved from disclosure file
+    assert (d / "comp_cache.json").exists()
+    # second call with an empty disclosures map must hit the cache
+    cache2 = CompositionCache(d / "comp_cache.json")
+    again = fetch_compositions(funds, cache=cache2)
+    assert set(again.keys()) == set(comps.keys())
+
+
+def test_fetched_compositions_feed_lookthrough():
+    from analyzer.compositions_fetch import discover_disclosures, fetch_compositions
+    from analyzer.loader import load_csv
+    from analyzer.models import AssetType
+    pf = load(SAMPLE)
+    pf.holdings.extend(load_csv(FUNDS, AssetType.MUTUAL_FUND).holdings)
+    disc = discover_disclosures(DISCLOSURE.parent)
+    comps = fetch_compositions([f.name for f in pf.funds()], disclosures=disc)
+    a = Analysis(pf, compositions=comps)
+    # Orion disclosure resolved -> Gamma Tech gets fund exposure on top of direct
+    gamma = next(e for e in a.lookthrough.exposures if e.name.startswith("Gamma"))
+    assert gamma.via_funds and gamma.total > gamma.direct
+
+
 def test_monitor_seeds_and_alerts(tmp_path=None):
     import tempfile
     from analyzer.alerts import AlertConfig, apply_cooldown, evaluate

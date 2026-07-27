@@ -50,6 +50,19 @@ def run_once(args, notifiers, state: MonitorState) -> int:
         from analyzer.lookthrough import load_compositions
         compositions = load_compositions(args.fund_holdings)
 
+    if args.disclosures or args.comp_url or args.comp_cache:
+        from analyzer.compositions_fetch import (
+            CompositionCache, HttpCompositionProvider, discover_disclosures,
+            fetch_compositions)
+        disc = discover_disclosures(args.disclosures) if args.disclosures else {}
+        fund_names = list(dict.fromkeys(
+            [f.name for f in pf.funds()] + list(disc.keys())))
+        provider = HttpCompositionProvider(args.comp_url) if args.comp_url else None
+        cache = CompositionCache(args.comp_cache) if args.comp_cache else None
+        fetched = fetch_compositions(fund_names, disclosures=disc,
+                                     provider=provider, cache=cache)
+        compositions = {**(compositions or {}), **fetched}
+
     a = Analysis(pf, compositions=compositions)
     sugs = run_rules(a)
 
@@ -72,6 +85,12 @@ def main(argv=None) -> int:
     ap.add_argument("--funds", default="", help="MF holdings CSV (for look-through)")
     ap.add_argument("--fund-holdings", dest="fund_holdings", default="",
                     help="fund compositions CSV/JSON (for look-through)")
+    ap.add_argument("--disclosures", default="",
+                    help="folder of AMC portfolio-disclosure files to parse")
+    ap.add_argument("--compositions-url", dest="comp_url", default="",
+                    help="URL template ({fund}) to fetch a disclosure per fund")
+    ap.add_argument("--comp-cache", default="",
+                    help="path to cache fetched compositions")
     ap.add_argument("--live", action="store_true", help="fetch live prices/NAVs")
     ap.add_argument("--state", default=None, help="state file (default ~/.portfolio_monitor/state.json)")
     ap.add_argument("--cooldown", type=float, default=24.0,
