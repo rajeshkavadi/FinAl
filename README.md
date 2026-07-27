@@ -71,6 +71,24 @@ cashflows to the XIRR.
 
 Thresholds live in `analyzer/rules.py::DEFAULT_THRESHOLDS` and are easy to tune.
 
+## Tax-on-switch (STCG/LTCG)
+Before you act on a suggestion, the app estimates the capital-gains tax of
+actually exiting the flagged positions (current Indian rules, post-Jul-2024):
+
+- Listed equity / equity MF: **STCG 20%** (≤12m), **LTCG 12.5%** (>12m) on gains
+  above the **₹1.25L** annual exemption; **debt MF** at slab (`--slab`)
+- Short/long-term **losses are netted within their term**; 4% cess added;
+  surcharge excluded (income-dependent)
+- Reports total tax, **net proceeds**, **tax drag %**, and the **break-even
+  out-performance** the replacement must deliver just to recover the tax
+
+```bash
+python run.py portfolio.xlsx --tax-on "Jyoti Structures,Mastek" --slab 0.30
+```
+Needs quantity, price and buy date on the holdings to be exact; without a buy
+date a position is treated as short-term (conservative). **Estimate only — not
+tax advice.**
+
 ## Architecture
 ```
 analyzer/
@@ -86,8 +104,9 @@ tests/           smoke tests over the bundled sample
 
 ## Roadmap
 - [x] Quantities → true current value, unrealised P/L (absolute & %), CAGR/XIRR
+- [x] STCG/LTCG tax estimate on each suggested switch (Sec 111A / 112A, cess,
+      ₹1.25L LTCG exemption, loss set-off within term)
 - [ ] MF↔equity look-through overlap (fund factsheet holdings vs direct stocks)
-- [ ] STCG/LTCG tax estimate on each suggested switch
 - [ ] Scheduled refresh + email/push alerts ("constantly monitor")
 - [ ] Broker/CAS auto-sync (Zerodha Kite, MF Central) as an import source
 ```

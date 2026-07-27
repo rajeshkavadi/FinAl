@@ -83,12 +83,33 @@ def load_xlsx(path: str | Path) -> Portfolio:
 
         if "sip" in title:
             pf.sips.extend(_parse_sips(rows))
+        elif "replace" in title or "suggest" in title:
+            pf.meta.setdefault("replacements", []).extend(_parse_replacements(rows))
         elif "equity" in title or "stock" in title or "direct" in title:
             pf.holdings.extend(_parse_equity(rows))
         elif "fund" in title and "sip" not in title:
             # a current-MF-holdings sheet, if the user adds one later
             pf.holdings.extend(_parse_funds(rows))
     return pf
+
+
+def _parse_replacements(rows: list[list]) -> list[dict]:
+    hdr = rows[0]
+    i_cur = _find(hdr, "current", "holding", "from")
+    i_val = _find(hdr, "value", "amount")
+    i_rep = _find(hdr, "replacement", "suggested", "to")
+    i_rat = _find(hdr, "rationale", "reason", "note")
+    out: list[dict] = []
+    for cells in rows[1:]:
+        if _is_total_row(cells) or i_cur is None or not cells[i_cur]:
+            continue
+        out.append({
+            "current": str(cells[i_cur]).strip(),
+            "value": _num(cells[i_val]) if i_val is not None else None,
+            "replacement": str(cells[i_rep]).strip() if i_rep is not None and cells[i_rep] else "",
+            "rationale": str(cells[i_rat]).strip() if i_rat is not None and cells[i_rat] else "",
+        })
+    return out
 
 
 def _parse_sips(rows: list[list]) -> list[Holding]:

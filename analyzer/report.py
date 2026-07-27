@@ -92,6 +92,65 @@ def _pl_section(a) -> str:
     </div>"""
 
 
+def _tax_section(a, sugs) -> str:
+    names = a.sell_candidates(sugs)
+    if not names:
+        return ('<div class="card"><p class="muted">No specific exit candidates '
+                'flagged, so no switch-tax estimate is needed.</p></div>')
+    rep = a.switch_tax(names)
+    if not rep.lines:
+        note = " ".join(rep.notes) if rep.notes else ""
+        return ('<div class="card"><p class="muted">Tax on exiting the flagged '
+                'positions can be estimated once they carry <strong>quantity, '
+                'price and buy date</strong>. ' + html.escape(note) + '</p></div>')
+
+    line_rows = []
+    for ln in rep.lines:
+        term_color = {"LTCG": "#067647", "STCG": "#b54708",
+                      "UNKNOWN": "#b42318", "SLAB": "#175cd3"}.get(ln.term, "#475467")
+        held = f"{ln.days_held}d" if ln.days_held is not None else "—"
+        line_rows.append(f"""
+        <tr><td>{html.escape(ln.name)}</td>
+        <td class="num">{_signed(ln.gain)}</td>
+        <td><span class="tterm" style="color:{term_color}">{ln.term}</span></td>
+        <td class="num">{held}</td></tr>""")
+
+    r = rep
+    summary = [
+        ("Gross proceeds (sell value)", _rupees(r.gross_proceeds)),
+        ("Short-term gain → tax @20%", f"{_signed(r.stcg_gain)} → {_rupees(r.stcg_tax)}"),
+        ("Long-term gain (after ₹1.25L exempt) → tax @12.5%",
+         f"{_signed(r.ltcg_gain)} → {_rupees(r.ltcg_tax)}"),
+        ("Estimated total tax", _rupees(r.total_tax)),
+        ("Net proceeds after tax", _rupees(r.net_proceeds)),
+        ("Tax drag on the switch", f"{r.tax_drag_pct*100:.1f}%"),
+        ("Replacement must out-earn by", f"{r.breakeven_outperformance()*100:.1f}% just to break even"),
+    ]
+    summary_html = "".join(
+        f'<div class="trow"><span>{html.escape(k)}</span><b>{v}</b></div>'
+        for k, v in summary)
+    notes = ""
+    if r.notes:
+        notes = "<ul class='tnotes'>" + "".join(
+            f"<li>{html.escape(n)}</li>" for n in r.notes) + "</ul>"
+
+    return f"""
+    <div class="card">
+      <p class="muted">If you exited the flagged exit-candidates this financial
+      year, the estimated capital-gains cost is:</p>
+      <table class="ttable">
+        <thead><tr><th>Position</th><th class="num">Gain</th><th>Term</th><th class="num">Held</th></tr></thead>
+        <tbody>{"".join(line_rows)}</tbody>
+      </table>
+      <div class="tsummary">{summary_html}</div>
+      {notes}
+      <p class="muted" style="font-size:12px;margin-top:10px">Includes 4% cess;
+      excludes surcharge (income-dependent). Short/long-term losses are netted
+      within their term and the ₹1.25L LTCG exemption is applied once to the
+      batch. Estimate only — confirm with a tax professional.</p>
+    </div>"""
+
+
 def _suggestions_html(sugs: list[Suggestion]) -> str:
     if not sugs:
         return '<p class="muted">No rules triggered — the book is within all configured guidelines.</p>'
@@ -171,6 +230,15 @@ h2{{font-size:17px;margin:30px 0 12px}}
 @media(max-width:620px){{.pltwo{{grid-template-columns:1fr}}}}
 .plh{{font-size:13px;font-weight:650;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.03em}}
 .plrow{{grid-template-columns:1fr auto}}
+.ttable{{width:100%;border-collapse:collapse;font-size:13px;margin:4px 0 14px}}
+.ttable th,.ttable td{{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}}
+.ttable .num{{text-align:right;font-variant-numeric:tabular-nums}}
+.tterm{{font-weight:650;font-size:12px}}
+.tsummary{{background:#f9fafb;border:1px solid var(--line);border-radius:8px;padding:6px 12px}}
+.trow{{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px}}
+.trow:last-child{{border-bottom:none}}
+.tnotes{{margin:10px 0 0;padding-left:18px;color:var(--muted);font-size:12px}}
+.tnotes li{{margin:3px 0}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
 <h1>{html.escape(title)}</h1>
@@ -185,6 +253,9 @@ h2{{font-size:17px;margin:30px 0 12px}}
 
 <h2>Restructuring suggestions</h2>
 {_suggestions_html(sugs)}
+
+<h2>Tax impact of exiting flagged positions</h2>
+{_tax_section(a, sugs)}
 
 <h2>Single-stock concentration</h2>
 <div class="card">{_bars(a.by_stock, a.equity_total, "#3b82f6")}</div>

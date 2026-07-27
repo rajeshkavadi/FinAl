@@ -1,6 +1,6 @@
 Stock,Sector/Theme,Quantity,Price,Invested,Buy Date,Risk Flag,Notes
 Alpha Bank,Financials / Bank,600,520,300000,2024-01-15,Medium,Core financial holding
-Beta NBFC,NBFC / Microfinance,4000,180,700000,2023-11-02,High,Oversized single position (illustrative)
+Beta NBFC,NBFC / Microfinance,4000,180,450000,2023-11-02,High,Oversized single position (illustrative)
 Gamma Tech,IT - Services,200,1400,250000,2024-03-20,Medium,IT services
 Delta Soft,IT - Software,300,900,250000,2024-06-10,Medium-High,Adds to IT concentration
 Epsilon Cargo,Logistics / Cargo,250,1300,400000,2025-01-08,Very High,Highly volatile micro-cap

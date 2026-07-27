@@ -26,7 +26,7 @@ def _analyse():
 def test_loads_holdings():
     pf, a, _ = _analyse()
     assert len(pf.equities()) == 10
-    assert pf.total_invested == 2450000          # cost basis
+    assert pf.total_invested == 2200000          # cost basis
     assert a.equity_total == 2515600             # marked to market (qty * price)
 
 
@@ -81,6 +81,48 @@ def test_portfolio_xirr_runs():
     _, a, _ = _analyse()
     x = a.portfolio_xirr()   # sample has buy dates -> should produce a number
     assert x is not None
+
+
+def test_holding_period_classification():
+    from analyzer.tax import AssetClass, is_long_term
+    import datetime as dt
+    asof = dt.date(2026, 7, 27)
+    assert is_long_term(dt.date(2025, 1, 1), asof, 12) is True    # ~18 months
+    assert is_long_term(dt.date(2026, 1, 1), asof, 12) is False   # ~7 months
+
+
+def test_switch_tax_ltcg_exemption():
+    from analyzer.tax import AssetClass, TaxLine, estimate_switch_tax
+    import datetime as dt
+    asof = dt.date(2026, 7, 27)
+    # A long-term equity gain of 2,00,000: 1,25,000 exempt, 75,000 @12.5% + 4% cess
+    line = TaxLine("X", AssetClass.EQUITY, invested=300000,
+                   current_value=500000, buy_date=dt.date(2024, 1, 1))
+    rep = estimate_switch_tax([line], asof=asof)
+    assert rep.lines[0].term == "LTCG"
+    assert round(rep.ltcg_taxable_after_exemption) == 75000
+    assert round(rep.ltcg_tax) == round(75000 * 0.125 * 1.04)   # 9750
+
+
+def test_switch_tax_stcg_rate():
+    from analyzer.tax import AssetClass, TaxLine, estimate_switch_tax
+    import datetime as dt
+    asof = dt.date(2026, 7, 27)
+    # Short-term gain 1,00,000 @20% + 4% cess = 20,800
+    line = TaxLine("Y", AssetClass.EQUITY, invested=200000,
+                   current_value=300000, buy_date=dt.date(2026, 3, 1))
+    rep = estimate_switch_tax([line], asof=asof)
+    assert rep.lines[0].term == "STCG"
+    assert round(rep.stcg_tax) == round(100000 * 0.20 * 1.04)   # 20800
+
+
+def test_switch_tax_from_analysis():
+    _, a, sugs = _analyse()
+    names = a.sell_candidates(sugs)
+    assert names   # Beta NBFC (concentration) + micro positions + Theta (averaging)
+    rep = a.switch_tax(names)
+    assert rep.gross_proceeds > 0
+    assert rep.total_tax >= 0
 
 
 if __name__ == "__main__":

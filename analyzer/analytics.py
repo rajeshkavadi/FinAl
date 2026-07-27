@@ -23,6 +23,22 @@ THEME_KEYWORDS = {
 }
 
 
+_DEBT_HINTS = ("debt", "liquid", "gilt", "bond", "money market", "overnight",
+               "corporate bond", "banking & psu", "ultra short", "low duration")
+
+
+def _asset_class(h):
+    """Map a holding to a tax asset class (equity vs debt MF vs other)."""
+    from .models import AssetType
+    from .tax import AssetClass
+    if h.asset_type == AssetType.MUTUAL_FUND:
+        blob = f"{h.category} {h.name}".lower()
+        if any(k in blob for k in _DEBT_HINTS):
+            return AssetClass.DEBT
+        return AssetClass.EQUITY   # equity-oriented MF (STT) by default
+    return AssetClass.EQUITY       # listed shares / ETF
+
+
 def _bucket(sector: str) -> str | None:
     s = (sector or "").lower()
     for theme, kws in THEME_KEYWORDS.items():
@@ -158,6 +174,49 @@ class Analysis:
             winners=[r for r in rows if r.pl > 0],
             losers=[r for r in rows if r.pl < 0],
         )
+
+    def switch_tax(self, names, config=None, asof=None):
+        """Estimate capital-gains tax on exiting the named holdings as a batch.
+
+        Only holdings that can be marked to market (quantity + price) contribute
+        a real gain; the rest are reported as needing quantities. Returns a
+        ``SwitchTaxReport`` (see ``tax.py``).
+        """
+        from .tax import AssetClass, TaxLine, estimate_switch_tax
+        wanted = {n.strip().lower() for n in names}
+        lines: list[TaxLine] = []
+        missing_value: list[str] = []
+        for h in self.pf.holdings:
+            if h.name.strip().lower() not in wanted:
+                continue
+            if not h.valued_on_market:
+                missing_value.append(h.name)
+                continue
+            lines.append(TaxLine(
+                name=h.name,
+                asset_class=_asset_class(h),
+                invested=h.invested,
+                current_value=h.current_value,
+                buy_date=h.buy_date,
+            ))
+        rep = estimate_switch_tax(lines, config=config, asof=asof)
+        if missing_value:
+            rep.notes.append(
+                "No quantity/price for: " + ", ".join(missing_value)
+                + " — add them to include these in the tax estimate.")
+        return rep
+
+    def sell_candidates(self, sugs) -> list[str]:
+        """Concrete stock names the suggestions imply trimming or exiting."""
+        rules = {"single_stock_concentration", "averaging_into_speculative",
+                 "micro_positions"}
+        names: list[str] = []
+        for s in sugs:
+            if s.rule in rules:
+                for n in s.impacted:
+                    if n not in names:
+                        names.append(n)
+        return names
 
     def portfolio_xirr(self) -> float | None:
         """Money-weighted return across holdings/SIPs that carry dates.

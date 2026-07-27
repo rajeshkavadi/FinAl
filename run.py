@@ -30,6 +30,12 @@ def main(argv=None) -> int:
     ap.add_argument("--live", action="store_true", help="fetch live prices/NAVs")
     ap.add_argument("--json", action="store_true", help="also emit JSON to stdout")
     ap.add_argument("--title", default="Portfolio Analysis")
+    ap.add_argument("--tax-on", default="",
+                    help="comma-separated holding names to estimate switch tax for "
+                         "(default: the suggestion-flagged exit candidates)")
+    ap.add_argument("--slab", type=float, default=None,
+                    help="your income-slab rate as a fraction (e.g. 0.30) for "
+                         "debt/non-equity gains")
     args = ap.parse_args(argv)
 
     pf = load(args.input)
@@ -55,6 +61,18 @@ def main(argv=None) -> int:
     print(f"{len(sugs)} suggestion(s):")
     for s in sugs:
         print(f"  [{s.severity.upper():4}] {s.title}")
+
+    # Switch-tax estimate
+    from analyzer.tax import TaxConfig
+    names = ([n.strip() for n in args.tax_on.split(",") if n.strip()]
+             or a.sell_candidates(sugs))
+    if names:
+        rep = a.switch_tax(names, config=TaxConfig(slab_rate=args.slab))
+        if rep.lines:
+            print(f"Switch-tax estimate on {len(rep.lines)} position(s): "
+                  f"total tax ₹{rep.total_tax:,.0f} on ₹{rep.gross_proceeds:,.0f} "
+                  f"proceeds (drag {rep.tax_drag_pct*100:.1f}%)")
+
     print(f"Dashboard written to {args.out}")
 
     if args.json:
