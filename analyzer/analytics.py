@@ -102,10 +102,16 @@ def effective_positions(pcts: list[float]) -> float:
 
 
 class Analysis:
-    def __init__(self, pf: Portfolio):
+    def __init__(self, pf: Portfolio, compositions=None):
         self.pf = pf
         eq = pf.equities()
         self.equity_total = sum(h.current_value for h in eq)
+
+        # optional MF<->equity look-through (needs fund compositions + values)
+        self.lookthrough = None
+        if compositions and pf.funds():
+            from .lookthrough import look_through
+            self.lookthrough = look_through(pf, compositions)
 
         # per-stock
         self.by_stock = _breakdown(

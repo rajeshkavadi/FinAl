@@ -15,11 +15,24 @@ from analyzer.report import build_dashboard
 from analyzer.rules import run_rules
 
 SAMPLE = ROOT / "sample_data" / "example_portfolio.csv"
+FUNDS = ROOT / "sample_data" / "example_funds.csv"
+FUND_HOLDINGS = ROOT / "sample_data" / "example_fund_holdings.csv"
 
 
 def _analyse():
     pf = load(SAMPLE)
     a = Analysis(pf)
+    return pf, a, run_rules(a)
+
+
+def _analyse_with_funds():
+    from analyzer.models import AssetType
+    from analyzer.loader import load_csv
+    from analyzer.lookthrough import load_compositions
+    pf = load(SAMPLE)
+    pf.holdings.extend(load_csv(FUNDS, AssetType.MUTUAL_FUND).holdings)
+    comps = load_compositions(FUND_HOLDINGS)
+    a = Analysis(pf, compositions=comps)
     return pf, a, run_rules(a)
 
 
@@ -123,6 +136,43 @@ def test_switch_tax_from_analysis():
     rep = a.switch_tax(names)
     assert rep.gross_proceeds > 0
     assert rep.total_tax >= 0
+
+
+def test_lookthrough_weights_normalise():
+    from analyzer.lookthrough import load_compositions, norm
+    comps = load_compositions(FUND_HOLDINGS)
+    vega = comps[norm("Vega Technology Fund")]
+    # weights given as percentages must become fractions
+    assert abs(vega.named_weight - 0.55) < 1e-9   # 18+15+12+10 = 55%
+    assert all(0 < c.weight < 1 for c in vega.holdings)
+
+
+def test_lookthrough_combines_direct_and_fund():
+    _, a, _ = _analyse_with_funds()
+    lt = a.lookthrough
+    assert lt is not None
+    # Gamma Tech is held directly AND in both funds -> a direct+fund overlap
+    gamma = next(e for e in lt.exposures if e.name == "Gamma Tech")
+    assert gamma.direct > 0 and len(gamma.via_funds) == 2
+    assert gamma.total > gamma.direct                     # look-through adds exposure
+    assert gamma in lt.direct_and_fund_overlaps()
+    assert gamma in lt.multi_fund_overlaps()
+
+
+def test_lookthrough_rules_fire():
+    _, _, sugs = _analyse_with_funds()
+    rules = {s.rule for s in sugs}
+    assert "lookthrough_direct_fund_overlap" in rules
+
+
+def test_lookthrough_base_and_attribution():
+    pf, a, _ = _analyse_with_funds()
+    lt = a.lookthrough
+    # base = direct equity value + fund value
+    fund_val = sum(h.current_value for h in pf.funds())
+    assert round(lt.total_base) == round(a.equity_total + fund_val)
+    # matched + unattributed fund value == total fund value
+    assert round(lt.matched_fund_value + lt.unattributed) == round(fund_val)
 
 
 if __name__ == "__main__":

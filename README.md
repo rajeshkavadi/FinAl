@@ -68,8 +68,11 @@ cashflows to the XIRR.
 | Averaging into speculative | same name held across multiple tranches |
 | MF category overlap | 2+ funds in the same category |
 | Micro positions | several sub-1.5% positions adding tracking noise |
+| Hidden concentration | a stock's look-through weight (direct + funds) breaches the single-stock guideline |
+| Direct∩fund overlap | a stock is held both directly and inside your funds |
 
 Thresholds live in `analyzer/rules.py::DEFAULT_THRESHOLDS` and are easy to tune.
+The last two require look-through data (see below).
 
 ## Tax-on-switch (STCG/LTCG)
 Before you act on a suggestion, the app estimates the capital-gains tax of
@@ -89,13 +92,37 @@ Needs quantity, price and buy date on the holdings to be exact; without a buy
 date a position is treated as short-term (conservative). **Estimate only — not
 tax advice.**
 
+## Look-through (MF ↔ equity)
+Your funds hold stocks too. If you also own those stocks directly, your *true*
+exposure is higher than either view shows. Supply fund values and each fund's
+constituents and the app combines them into one exposure map:
+
+```bash
+python run.py portfolio.xlsx \
+  --funds sample_data/example_funds.csv \
+  --fund-holdings sample_data/example_fund_holdings.csv
+```
+- `--funds` — current MF holdings with value: `Fund, Units, NAV, Invested`
+- `--fund-holdings` — compositions from factsheets/disclosures:
+  `Fund, Stock, Weight[, Sector]` (weight as % or fraction); JSON also accepted
+
+It reports each stock's **true %** vs **direct %**, which funds contribute, and a
+`direct + fund` / `multi-fund` overlap flag, and raises a **hidden-concentration**
+suggestion when a name's combined weight breaches the single-stock guideline
+even if the direct leg alone doesn't. Names are matched fuzzily (Ltd/Limited/
+India suffixes normalised); un-named/cash holdings count toward the base but
+aren't attributed to a stock.
+
 ## Architecture
 ```
 analyzer/
   models.py      Holding / Portfolio data model (stdlib only)
   loader.py      xlsx + CSV import (fuzzy column matching)
+  returns.py     XIRR / CAGR / SIP cashflow synthesis
+  tax.py         STCG/LTCG switch-tax estimator (Sec 111A / 112A)
+  lookthrough.py MF constituents -> combined true exposure + overlaps
   prices.py      optional live providers: Yahoo (equity), AMFI (MF NAV)
-  analytics.py   concentration, HHI, sector/theme/risk, overlap detection
+  analytics.py   concentration, HHI, sector/theme/risk, P/L, look-through
   rules.py       transparent, threshold-driven suggestion engine
   report.py      self-contained HTML dashboard
 run.py           CLI
@@ -106,7 +133,8 @@ tests/           smoke tests over the bundled sample
 - [x] Quantities → true current value, unrealised P/L (absolute & %), CAGR/XIRR
 - [x] STCG/LTCG tax estimate on each suggested switch (Sec 111A / 112A, cess,
       ₹1.25L LTCG exemption, loss set-off within term)
-- [ ] MF↔equity look-through overlap (fund factsheet holdings vs direct stocks)
+- [x] MF↔equity look-through overlap (fund constituents vs direct stocks →
+      true per-stock exposure + hidden-concentration flags)
 - [ ] Scheduled refresh + email/push alerts ("constantly monitor")
 - [ ] Broker/CAS auto-sync (Zerodha Kite, MF Central) as an import source
 ```

@@ -36,9 +36,25 @@ def main(argv=None) -> int:
     ap.add_argument("--slab", type=float, default=None,
                     help="your income-slab rate as a fraction (e.g. 0.30) for "
                          "debt/non-equity gains")
+    ap.add_argument("--funds", default="",
+                    help="CSV of current MF holdings (Fund, Units, NAV, Invested) "
+                         "to add fund values for look-through")
+    ap.add_argument("--fund-holdings", dest="fund_holdings", default="",
+                    help="CSV/JSON of fund compositions (Fund, Stock, Weight[, Sector]) "
+                         "for MF<->equity look-through")
     args = ap.parse_args(argv)
 
     pf = load(args.input)
+
+    if args.funds:
+        from analyzer.models import AssetType
+        from analyzer.loader import load_csv
+        pf.holdings.extend(load_csv(args.funds, AssetType.MUTUAL_FUND).holdings)
+
+    compositions = None
+    if args.fund_holdings:
+        from analyzer.lookthrough import load_compositions
+        compositions = load_compositions(args.fund_holdings)
 
     if args.live:
         from analyzer.prices import enrich_live
@@ -47,7 +63,7 @@ def main(argv=None) -> int:
               f"nav updated={status['nav_updated']} "
               f"errors={status['errors']}", file=sys.stderr)
 
-    a = Analysis(pf)
+    a = Analysis(pf, compositions=compositions)
     sugs = run_rules(a)
 
     html = build_dashboard(pf, a, sugs, title=args.title)
@@ -58,6 +74,12 @@ def main(argv=None) -> int:
     print(f"Direct equity total: ₹{a.equity_total:,.0f} · "
           f"effective positions {a.equity_eff_positions:.1f} · "
           f"high-risk {a.high_risk_pct*100:.1f}%")
+    if a.lookthrough:
+        lt = a.lookthrough
+        print(f"Look-through: base ₹{lt.total_base:,.0f}, "
+              f"{len(lt.direct_and_fund_overlaps())} direct+fund overlap(s), "
+              f"{len(lt.multi_fund_overlaps())} multi-fund overlap(s)")
+
     print(f"{len(sugs)} suggestion(s):")
     for s in sugs:
         print(f"  [{s.severity.upper():4}] {s.title}")

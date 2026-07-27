@@ -151,6 +151,56 @@ def _tax_section(a, sugs) -> str:
     </div>"""
 
 
+def _lookthrough_section(a) -> str:
+    lt = getattr(a, "lookthrough", None)
+    if not lt:
+        return ('<div class="card"><p class="muted">Add fund compositions '
+                '(<code>--fund-holdings</code>) and fund values '
+                '(<code>--funds</code>) to see your <strong>true</strong> exposure '
+                'once your mutual funds are looked through into their underlying '
+                'stocks.</p></div>')
+
+    dfo = lt.direct_and_fund_overlaps()
+    rows = []
+    for e in lt.top(12):
+        via = " · ".join(f"{k.split('(')[0].strip()} {v/lt.total_base*100:.1f}%"
+                         for k, v in e.via_funds.items())
+        badges = ""
+        if e.direct > 0 and e.via_funds:
+            badges = '<span class="lchip lred">direct + fund</span>'
+        elif len(e.via_funds) >= 2:
+            badges = '<span class="lchip lamb">multi-fund</span>'
+        hidden = (f' <span class="muted">({e.hidden_multiplier:.1f}× direct)</span>'
+                  if e.hidden_multiplier and e.hidden_multiplier >= 1.25 else "")
+        rows.append(f"""
+        <tr><td>{html.escape(e.name)} {badges}</td>
+        <td class="num"><b>{e.pct*100:.1f}%</b>{hidden}</td>
+        <td class="num">{e.direct_pct*100:.1f}%</td>
+        <td class="lvia">{html.escape(via) or '—'}</td></tr>""")
+
+    miss = ""
+    if lt.funds_without_composition:
+        miss = ('<p class="muted" style="font-size:12px;margin-top:8px">No composition '
+                'supplied for: ' + html.escape(", ".join(lt.funds_without_composition))
+                + ' — their value is treated as diversified/unattributed.</p>')
+    unattr = (f'<p class="muted" style="font-size:12px">₹{lt.unattributed:,.0f} of fund '
+              f'value is in un-named / residual holdings (counted in the base, not '
+              f'attributed to a stock).</p>') if lt.unattributed else ""
+
+    return f"""
+    <div class="card">
+      <p class="muted">True exposure once funds are looked through into their
+      holdings, over a ₹{lt.total_base:,.0f} equity+MF base.
+      <b>{len(dfo)}</b> name(s) appear both directly and inside your funds.</p>
+      <table class="ttable">
+        <thead><tr><th>Stock</th><th class="num">True %</th>
+          <th class="num">Direct %</th><th>Via funds</th></tr></thead>
+        <tbody>{"".join(rows)}</tbody>
+      </table>
+      {miss}{unattr}
+    </div>"""
+
+
 def _suggestions_html(sugs: list[Suggestion]) -> str:
     if not sugs:
         return '<p class="muted">No rules triggered — the book is within all configured guidelines.</p>'
@@ -239,6 +289,11 @@ h2{{font-size:17px;margin:30px 0 12px}}
 .trow:last-child{{border-bottom:none}}
 .tnotes{{margin:10px 0 0;padding-left:18px;color:var(--muted);font-size:12px}}
 .tnotes li{{margin:3px 0}}
+.lvia{{font-size:12px;color:var(--muted)}}
+.lchip{{display:inline-block;font-size:10px;font-weight:650;padding:1px 6px;border-radius:5px;margin-left:6px;text-transform:uppercase;letter-spacing:.03em}}
+.lred{{background:#fef3f2;color:#b42318}}
+.lamb{{background:#fffaeb;color:#b54708}}
+code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
 <h1>{html.escape(title)}</h1>
@@ -256,6 +311,9 @@ h2{{font-size:17px;margin:30px 0 12px}}
 
 <h2>Tax impact of exiting flagged positions</h2>
 {_tax_section(a, sugs)}
+
+<h2>Look-through exposure (funds + direct)</h2>
+{_lookthrough_section(a)}
 
 <h2>Single-stock concentration</h2>
 <div class="card">{_bars(a.by_stock, a.equity_total, "#3b82f6")}</div>

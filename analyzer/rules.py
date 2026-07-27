@@ -194,6 +194,58 @@ def micro_positions(a: Analysis, t: dict) -> list[Suggestion]:
     return []
 
 
+@rule
+def lookthrough_hidden_concentration(a: Analysis, t: dict) -> list[Suggestion]:
+    lt = getattr(a, "lookthrough", None)
+    if not lt:
+        return []
+    out = []
+    for e in lt.top(20):
+        # a name whose *true* (direct + via-fund) weight breaches the guideline,
+        # especially when the direct-only view understates it
+        if e.pct >= t["single_stock_warn"]:
+            sev = "high" if e.pct >= t["single_stock_high"] else "warn"
+            hidden = ""
+            if e.hidden_multiplier and e.hidden_multiplier >= 1.25 and e.via_funds:
+                hidden = (f" Direct holdings show only {_pct(e.direct_pct)}, but your "
+                          f"funds add more of the same name.")
+            src = "direct + " + ", ".join(e.via_funds) if e.via_funds else "direct"
+            out.append(Suggestion(
+                rule="lookthrough_hidden_concentration",
+                severity=sev,
+                title=f"{e.name}: {_pct(e.pct)} true exposure (look-through)",
+                detail=(f"Combining direct holdings and fund constituents, {e.name} is "
+                        f"{_pct(e.pct)} (₹{e.total:,.0f}) of the equity+MF portfolio via "
+                        f"{src}.{hidden}"),
+                impacted=[e.name],
+                action=f"Count fund holdings when sizing {e.name}; trim the direct leg "
+                       "if the combined weight is above your comfort.",
+            ))
+    return out
+
+
+@rule
+def lookthrough_direct_fund_overlap(a: Analysis, t: dict) -> list[Suggestion]:
+    lt = getattr(a, "lookthrough", None)
+    if not lt:
+        return []
+    overlaps = [e for e in lt.direct_and_fund_overlaps() if e.pct < t["single_stock_warn"]]
+    if not overlaps:
+        return []
+    overlaps.sort(key=lambda e: e.total, reverse=True)
+    names = [e.name for e in overlaps[:10]]
+    return [Suggestion(
+        rule="lookthrough_direct_fund_overlap",
+        severity="info",
+        title=f"{len(overlaps)} stock(s) held both directly and inside your funds",
+        detail=("These names sit in your direct book and inside funds you own, so your "
+                "true exposure is larger than the direct positions suggest. Not a "
+                "problem by itself, but worth counting when you add to them."),
+        impacted=names,
+        action="Treat direct + fund exposure as one number per name before topping up.",
+    )]
+
+
 def run_rules(a: Analysis, thresholds: dict | None = None) -> list[Suggestion]:
     t = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     out: list[Suggestion] = []
