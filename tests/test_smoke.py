@@ -270,6 +270,69 @@ def test_monitor_detects_drop():
     assert "move" in cats or "drawdown" in cats
 
 
+KITE = ROOT / "sample_data" / "example_kite_holdings.json"
+BROKER = ROOT / "sample_data" / "example_broker_holdings.csv"
+CAS = ROOT / "sample_data" / "example_cas.txt"
+
+
+def test_parse_kite_holdings():
+    import json as _json
+    from analyzer.sync import parse_kite_holdings
+    hs = parse_kite_holdings(_json.loads(KITE.read_text()))
+    assert len(hs) == 3
+    infy = next(h for h in hs if h.name == "INFY")
+    assert infy.quantity == 50 and infy.avg_cost == 1400 and infy.price == 1600
+    assert round(infy.invested) == 70000 and round(infy.current_value) == 80000
+    # t1_quantity folds into quantity
+    tata = next(h for h in hs if h.name == "TATASTEEL")
+    assert tata.quantity == 210
+
+
+def test_broker_csv_provider():
+    from analyzer.sync import BrokerCSVProvider
+    hs = BrokerCSVProvider(BROKER).holdings()
+    assert len(hs) == 3
+    rel = next(h for h in hs if h.name == "RELIANCE")
+    assert rel.quantity == 40 and rel.avg_cost == 2400 and rel.price == 2650
+
+
+def test_parse_cas_text():
+    from analyzer.sync import load_cas
+    from analyzer.models import AssetType
+    hs = load_cas(CAS)
+    assert len(hs) == 2
+    ppfc = next(h for h in hs if "Parag Parikh" in h.name)
+    assert ppfc.asset_type == AssetType.MUTUAL_FUND
+    assert abs(ppfc.quantity - 1800.5) < 1e-6
+    assert ppfc.price == 58.21
+    assert round(ppfc.invested) == 100000            # cost value used
+    assert ppfc.isin == "INF204K01234"
+    assert round(ppfc.current_value) == 104807       # units * NAV (1800.5 * 58.21)
+
+
+def test_sync_build_and_pl():
+    from analyzer.sync import BrokerCSVProvider, build_portfolio
+    from analyzer.analytics import Analysis
+    pf = build_portfolio(broker=BrokerCSVProvider(BROKER), cas_path=CAS)
+    assert len(pf.equities()) == 3 and len(pf.funds()) == 2
+    a = Analysis(pf)
+    # synced holdings carry qty+price -> P/L is fully computed
+    assert pf.fully_valued
+    assert a.pl.has_data and a.pl.total_pl is not None
+
+
+def test_sync_to_csv_roundtrips_into_loader():
+    import tempfile
+    from analyzer.sync import BrokerCSVProvider, build_portfolio, to_csv
+    d = Path(tempfile.mkdtemp())
+    pf = build_portfolio(broker=BrokerCSVProvider(BROKER))
+    to_csv(pf, d / "equity.csv", d / "funds.csv")
+    reloaded = load(d / "equity.csv")
+    assert len(reloaded.equities()) == 3
+    rel = next(h for h in reloaded.equities() if h.name == "RELIANCE")
+    assert rel.quantity == 40 and rel.valued_on_market
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

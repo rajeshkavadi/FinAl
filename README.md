@@ -92,6 +92,30 @@ Needs quantity, price and buy date on the holdings to be exact; without a buy
 date a position is treated as short-term (conservative). **Estimate only — not
 tax advice.**
 
+## Auto-sync (broker + CAS) — no manual entry
+`sync.py` pulls **real holdings with quantities** so P/L, XIRR and tax work on
+your actual portfolio. **Read-only — it never trades.**
+
+- **Direct equity** — Zerodha **Kite Connect** (`/portfolio/holdings`, needs an
+  API key + a daily access token) or **any broker's holdings CSV export**
+- **Mutual funds** — the **CAS** (Consolidated Account Statement) from
+  CAMS/KFintech: a `.pdf` (parsed via `pdfplumber`/`pypdf`, password = your PAN)
+  or a text/csv export
+
+```bash
+# broker CSV + CAS -> normalized CSVs + a dashboard
+python sync.py --broker-csv console_holdings.csv \
+  --cas cas_statement.pdf --cas-password ABCDE1234F \
+  --out-equity equity.csv --out-funds funds.csv --dashboard dashboard.html
+
+# Zerodha Kite
+python sync.py --kite-key $KITE_KEY --kite-token $KITE_TOKEN --out-equity equity.csv
+```
+The written `equity.csv` / `funds.csv` feed `run.py` and `monitor.py` directly,
+so the whole loop is *sync → analyse → monitor*. The response/CSV/CAS-text
+parsers are pure and unit-tested; the Kite network call and PDF extraction are
+isolated and best-effort (PDF parsing needs `pip install pdfplumber`).
+
 ## Look-through (MF ↔ equity)
 Your funds hold stocks too. If you also own those stocks directly, your *true*
 exposure is higher than either view shows. Supply fund values and each fund's
@@ -178,6 +202,7 @@ analyzer/
   tax.py         STCG/LTCG switch-tax estimator (Sec 111A / 112A)
   lookthrough.py MF constituents -> combined true exposure + overlaps
   compositions_fetch.py  parse AMC monthly disclosures + cache + HTTP provider
+  sync.py        broker (Kite / CSV) + CAS auto-sync -> holdings
   prices.py      optional live providers: Yahoo (equity), AMFI (MF NAV)
   analytics.py   concentration, HHI, sector/theme/risk, P/L, look-through
   rules.py       transparent, threshold-driven suggestion engine
@@ -187,6 +212,7 @@ analyzer/
   report.py      self-contained HTML dashboard
 run.py           analysis CLI (one-shot dashboard)
 monitor.py       monitoring CLI (snapshot + diff + alert + notify; --watch)
+sync.py          auto-sync CLI (broker + CAS -> normalized CSVs)
 tests/           smoke tests over the bundled sample
 ```
 
@@ -198,7 +224,7 @@ tests/           smoke tests over the bundled sample
       true per-stock exposure + hidden-concentration flags)
 - [x] Scheduled refresh + email/webhook alerts ("constantly monitor")
 - [x] Live fetcher for fund compositions (parse AMC monthly disclosures; cache)
-- [ ] Broker/CAS auto-sync (Zerodha Kite, MF Central) as an import source
+- [x] Broker/CAS auto-sync (Zerodha Kite / broker CSV + CAS statement)
 ```
 ```
 

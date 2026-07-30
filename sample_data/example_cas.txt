@@ -1,0 +1,22 @@
+Consolidated Account Statement
+CAMS / KFintech — Detailed Statement
+Period: 01-Apr-2026 to 30-Jun-2026
+
+Folio No: 12345678 / 0    PAN: ABCDE1234F
+INF204K01234
+Parag Parikh Flexi Cap Fund - Direct Plan - Growth
+Opening Unit Balance: 0.000
+Date        Transaction              Amount        Units       Price     Balance
+15-Apr-2026 Purchase                 100000.00     1800.500    55.5400   1800.500
+Closing Unit Balance: 1,800.500
+NAV on 30-Jun-2026: INR 58.2100
+Total Cost Value: INR 100,000.00
+Market Value on 30-Jun-2026: INR 1,04,808.71
+
+Folio No: 87654321 / 0    PAN: ABCDE1234F
+INF179K01BE2
+HDFC Mid-Cap Opportunities Fund - Direct Plan - Growth
+Closing Unit Balance: 950.250
+NAV on 30-Jun-2026: INR 120.4500
+Total Cost Value: INR 100,000.00
+Market Value on 30-Jun-2026: INR 1,14,452.62

@@ -9,7 +9,8 @@ alerts*.md
 comp_cache*.json
 disclosures/
 .portfolio_monitor/
-!sample_data/example_portfolio.csv
+# keep all curated sample/fixture data (overrides the broad ignores above)
+!sample_data/**
 __pycache__/
 *.pyc
 .venv/

@@ -1,0 +1,8 @@
+{
+  "status": "success",
+  "data": [
+    {"tradingsymbol": "INFY", "isin": "INE009A01021", "quantity": 50, "t1_quantity": 0, "average_price": 1400.0, "last_price": 1600.0},
+    {"tradingsymbol": "HDFCBANK", "isin": "INE040A01034", "quantity": 30, "t1_quantity": 0, "average_price": 1500.0, "last_price": 1450.0},
+    {"tradingsymbol": "TATASTEEL", "isin": "INE081A01020", "quantity": 200, "t1_quantity": 10, "average_price": 120.0, "last_price": 150.0}
+  ]
+}
