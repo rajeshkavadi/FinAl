@@ -16,8 +16,37 @@ single-stock concentration, sector over-weight, a high-risk-heavy book — in
 place. This engine measures those explicitly and flags them, whatever the
 underlying names are.
 
+## Capabilities at a glance
+
+**Two ways to use it:** a browser UI (`portfolio-web`) for one-shot analysis, and
+CLIs for everything including automation.
+
+| Capability | Web UI | CLI |
+|---|:---:|:---:|
+| Import holdings — tracker `.xlsx` / broker CSV / MF-holdings CSV | ✅ | ✅ |
+| CAS statement import (mutual funds; PDF + PAN password) | ✅ | ✅ |
+| Concentration — single-stock, sector/theme, HHI / effective positions | ✅ | ✅ |
+| Risk-flag exposure & SIP allocation breakdown | ✅ | ✅ |
+| **11 restructuring rules** with plain-English rationale | ✅ | ✅ |
+| **P/L** — market value, unrealised P/L (₹ & %), gainers/losers | ✅¹ | ✅¹ |
+| **CAGR & portfolio XIRR** (money-weighted) | ✅¹ | ✅¹ |
+| **STCG/LTCG tax-on-switch** — net proceeds, tax drag, break-even | ✅ | ✅ |
+| **MF ↔ equity look-through** — true vs direct exposure, hidden concentration | ✅² | ✅² |
+| Self-contained HTML dashboard | ✅ | ✅ |
+| Live prices / NAVs (Yahoo + AMFI) | — | ✅ `--live` |
+| **Continuous monitoring & alerts** (console / file / email / webhook) | — | ✅ `portfolio-monitor` |
+| Zerodha **Kite API** sync | — | ✅ `portfolio-sync` |
+| Auto-fetch AMC disclosures + composition cache | — | ✅ `--disclosures` |
+| Custom tax targeting `--tax-on` / `--slab`, JSON export `--json` | — | ✅ |
+
+¹ needs **quantities** (and buy dates for XIRR) — supplied by broker CSV / CAS, or
+added to your tracker.  ² needs **fund holdings** (factsheet/disclosure) uploaded.
+
+Everything runs **entirely on your machine** — the web UI binds to `127.0.0.1`
+and processes files in memory. **Read-only: it never places trades.**
+
 ## Install
-It's a normal pip package. From the `portfolio_app` folder:
+It's a normal pip package. From the repo root (the folder with `pyproject.toml`):
 
 ```bash
 pip install .
@@ -27,7 +56,8 @@ This installs four commands — `portfolio-analyze`, `portfolio-monitor`,
 
 **Windows (PowerShell or CMD):**
 ```powershell
-cd portfolio_app
+git clone https://github.com/rajeshkavadi/FinAl.git
+cd FinAl
 py -m pip install .            # or: pip install .
 py -m pip install ".[pdf]"     # add CAS-PDF support (pdfplumber)
 ```
