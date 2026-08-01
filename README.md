@@ -86,8 +86,8 @@ never sent anywhere.
 # From your tracker spreadsheet
 portfolio-analyze path/to/portfolio_tracker.xlsx --out dashboard.html
 
-# From a broker CSV export
-portfolio-analyze sample_data/example_portfolio.csv --out dashboard.html
+# Kick the tyres on the bundled sample (any CSV/xlsx works)
+portfolio-analyze src/portfolio_analyzer/sample_data/example_portfolio.csv --out dashboard.html
 
 # Pull live equity prices (Yahoo) + MF NAVs (AMFI) when online
 portfolio-analyze portfolio.xlsx --live
@@ -95,7 +95,9 @@ portfolio-analyze portfolio.xlsx --live
 # Also print machine-readable JSON
 portfolio-analyze portfolio.xlsx --json
 ```
-Open the generated `dashboard.html` in any browser.
+Open the generated `dashboard.html` in any browser. The example fixtures live in
+`src/portfolio_analyzer/sample_data/` (and ship inside the installed package —
+`portfolio-web`'s **“Try with sample data”** button uses them).
 
 ## Input format
 The loader matches columns fuzzily (case-insensitive), so most broker exports
@@ -152,8 +154,8 @@ date a position is treated as short-term (conservative). **Estimate only — not
 tax advice.**
 
 ## Auto-sync (broker + CAS) — no manual entry
-`sync.py` pulls **real holdings with quantities** so P/L, XIRR and tax work on
-your actual portfolio. **Read-only — it never trades.**
+`portfolio-sync` pulls **real holdings with quantities** so P/L, XIRR and tax work
+on your actual portfolio. **Read-only — it never trades.**
 
 - **Direct equity** — Zerodha **Kite Connect** (`/portfolio/holdings`, needs an
   API key + a daily access token) or **any broker's holdings CSV export**
@@ -182,9 +184,11 @@ constituents and the app combines them into one exposure map:
 
 ```bash
 portfolio-analyze portfolio.xlsx \
-  --funds sample_data/example_funds.csv \
-  --fund-holdings sample_data/example_fund_holdings.csv
+  --funds funds.csv \
+  --fund-holdings fund_holdings.csv
 ```
+(Runnable samples: `src/portfolio_analyzer/sample_data/example_funds.csv` and
+`example_fund_holdings.csv`.)
 - `--funds` — current MF holdings with value: `Fund, Units, NAV, Invested`
 - `--fund-holdings` — compositions from factsheets/disclosures:
   `Fund, Stock, Weight[, Sector]` (weight as % or fraction); JSON also accepted
@@ -218,12 +222,12 @@ portfolio-analyze portfolio.xlsx --funds funds.csv \
   --comp-cache ~/.portfolio_monitor/comp_cache.json
 ```
 Resolution order per fund: **cache → local disclosure file → HTTP provider**.
-The same flags work on `monitor.py`. There is no single official holdings API in
+The same flags work on `portfolio-monitor`. There is no single official holdings API in
 India, so this targets the disclosure files (and any URL you have rights to);
 scraping third-party sites is intentionally not built in.
 
 ## Monitoring ("constantly monitor")
-`monitor.py` snapshots the portfolio each run, diffs it against the last
+`portfolio-monitor` snapshots the portfolio each run, diffs it against the last
 snapshot, evaluates alert rules, and dispatches **new** alerts (per-alert
 cooldown prevents spam) to pluggable notifiers.
 
@@ -244,8 +248,10 @@ PORTFOLIO_ALERT_LOG=alerts.md portfolio-monitor portfolio.xlsx --live --watch 30
 
 # weekday 9:30 IST via cron, Slack + email
 # 30 9 * * 1-5  PORTFOLIO_WEBHOOK_URL=... SMTP_HOST=... ALERT_TO=you@x.com \
-#   python /path/monitor.py /path/portfolio.xlsx --live
+#   portfolio-monitor /path/portfolio.xlsx --live
 ```
+On Windows, drive the one-shot form from **Task Scheduler** (action:
+`portfolio-monitor C:\path\portfolio.xlsx --live`).
 Env: `PORTFOLIO_ALERT_LOG`, `PORTFOLIO_WEBHOOK_URL`, `SMTP_HOST` / `SMTP_PORT` /
 `SMTP_USER` / `SMTP_PASS` / `ALERT_FROM` / `ALERT_TO`. State (snapshots, peaks,
 cooldowns) persists in `~/.portfolio_monitor/state.json` (`--state` to override,
@@ -281,18 +287,31 @@ pyproject.toml   build config + console entry points
 tests/           smoke tests over the bundled sample
 ```
 
-## Roadmap
+## What's built
+- [x] Import + concentration / sector / risk / overlap analysis + suggestions + dashboard
 - [x] Quantities → true current value, unrealised P/L (absolute & %), CAGR/XIRR
-- [x] STCG/LTCG tax estimate on each suggested switch (Sec 111A / 112A, cess,
-      ₹1.25L LTCG exemption, loss set-off within term)
-- [x] MF↔equity look-through overlap (fund constituents vs direct stocks →
-      true per-stock exposure + hidden-concentration flags)
-- [x] Scheduled refresh + email/webhook alerts ("constantly monitor")
+- [x] STCG/LTCG tax-on-switch (Sec 111A / 112A, cess, ₹1.25L LTCG exemption,
+      loss set-off within term)
+- [x] MF↔equity look-through overlap (true per-stock exposure + hidden-concentration flags)
+- [x] Continuous monitoring + alerts (console / file / email / webhook, cooldown)
 - [x] Live fetcher for fund compositions (parse AMC monthly disclosures; cache)
 - [x] Broker/CAS auto-sync (Zerodha Kite / broker CSV + CAS statement)
-- [x] Pip-installable package with console entry points + web UI
+- [x] Pip-installable package with console entry points + local web UI
+
+### Possible next (not built)
+- Surface monitoring / live prices in the web UI (currently CLI-only)
+- MF Central / broker OAuth so CAS isn't a manual download
+- A holdings-database so look-through doesn't need a supplied factsheet
+- Packaged installer / private PyPI for one-command updates
 
 ## Tests
 ```bash
-python tests/test_smoke.py     # or: python -m pytest
+python -m pytest               # after: pip install ".[dev]"
+python tests/test_smoke.py     # no pytest needed; runs standalone
 ```
+The suite covers analytics, the rule engine, returns (XIRR/CAGR), tax, the CAS /
+broker / disclosure parsers, the monitor (seed → cooldown → change detection),
+and a live HTTP round-trip against the web UI.
+
+## License
+MIT (see `pyproject.toml`).
