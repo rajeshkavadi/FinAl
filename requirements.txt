@@ -1,3 +1,0 @@
-# Core analyzer has no hard runtime deps beyond the stdlib.
-# openpyxl is only needed to read .xlsx inputs (CSV works without it).
-openpyxl>=3.1

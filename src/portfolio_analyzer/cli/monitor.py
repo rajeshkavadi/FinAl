@@ -25,15 +25,14 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analyzer.alerts import AlertConfig, apply_cooldown, evaluate
-from analyzer.analytics import Analysis
-from analyzer.loader import load, load_csv
-from analyzer.models import AssetType
-from analyzer.notify import build_from_env, dispatch
-from analyzer.rules import run_rules
-from analyzer.state import MonitorState, Snapshot
+from portfolio_analyzer.alerts import AlertConfig, apply_cooldown, evaluate
+from portfolio_analyzer.analytics import Analysis
+from portfolio_analyzer.loader import load, load_csv
+from portfolio_analyzer.models import AssetType
+from portfolio_analyzer.notify import build_from_env, dispatch
+from portfolio_analyzer.rules import run_rules
+from portfolio_analyzer.state import MonitorState, Snapshot
 
 
 def run_once(args, notifiers, state: MonitorState) -> int:
@@ -42,16 +41,16 @@ def run_once(args, notifiers, state: MonitorState) -> int:
         pf.holdings.extend(load_csv(args.funds, AssetType.MUTUAL_FUND).holdings)
 
     if args.live:
-        from analyzer.prices import enrich_live
+        from portfolio_analyzer.prices import enrich_live
         enrich_live(pf)
 
     compositions = None
     if args.fund_holdings:
-        from analyzer.lookthrough import load_compositions
+        from portfolio_analyzer.lookthrough import load_compositions
         compositions = load_compositions(args.fund_holdings)
 
     if args.disclosures or args.comp_url or args.comp_cache:
-        from analyzer.compositions_fetch import (
+        from portfolio_analyzer.compositions_fetch import (
             CompositionCache, HttpCompositionProvider, discover_disclosures,
             fetch_compositions)
         disc = discover_disclosures(args.disclosures) if args.disclosures else {}

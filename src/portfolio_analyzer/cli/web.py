@@ -22,15 +22,13 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analyzer.analytics import Analysis
-from analyzer.loader import load, load_csv
-from analyzer.models import AssetType, Portfolio
-from analyzer.report import build_dashboard
-from analyzer.rules import run_rules
-
-ROOT = Path(__file__).resolve().parent
+from portfolio_analyzer import sample_path
+from portfolio_analyzer.analytics import Analysis
+from portfolio_analyzer.loader import load, load_csv
+from portfolio_analyzer.models import AssetType, Portfolio
+from portfolio_analyzer.report import build_dashboard
+from portfolio_analyzer.rules import run_rules
 
 
 # --------------------------------------------------------------------------
@@ -101,11 +99,11 @@ def assemble_portfolio(parts: dict[str, dict], tmp: Path):
             loaded.meta.get("replacements", []))
 
     if has("broker"):
-        from analyzer.sync import BrokerCSVProvider
+        from portfolio_analyzer.sync import BrokerCSVProvider
         pf.holdings.extend(BrokerCSVProvider(_save(tmp, "broker", parts["broker"])).holdings())
 
     if has("cas"):
-        from analyzer.sync import load_cas
+        from portfolio_analyzer.sync import load_cas
         pw = parts.get("cas_password", {}).get("content", b"").decode("utf-8", "ignore").strip()
         pf.holdings.extend(load_cas(_save(tmp, "cas", parts["cas"]), pw or None))
 
@@ -114,7 +112,7 @@ def assemble_portfolio(parts: dict[str, dict], tmp: Path):
                                     AssetType.MUTUAL_FUND).holdings)
 
     if has("fund_holdings"):
-        from analyzer.lookthrough import load_compositions
+        from portfolio_analyzer.lookthrough import load_compositions
         compositions = load_compositions(_save(tmp, "fund_holdings", parts["fund_holdings"]))
 
     return pf, compositions
@@ -218,8 +216,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith("/sample"):
-            sd = ROOT / "sample_data"
-            parts = {k: {"filename": f, "content": (sd / f).read_bytes()}
+            parts = {k: {"filename": f, "content": sample_path(f).read_bytes()}
                      for k, f in (("portfolio", "example_portfolio.csv"),
                                   ("funds", "example_funds.csv"),
                                   ("fund_holdings", "example_fund_holdings.csv"))}

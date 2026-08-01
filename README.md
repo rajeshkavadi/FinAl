@@ -17,15 +17,33 @@ place. This engine measures those explicitly and flags them, whatever the
 underlying names are.
 
 ## Install
+It's a normal pip package. From the `portfolio_app` folder:
+
 ```bash
-cd portfolio_app
-pip install -r requirements.txt   # only needed for .xlsx input; CSV needs nothing
+pip install .
 ```
+This installs four commands — `portfolio-analyze`, `portfolio-monitor`,
+`portfolio-sync`, `portfolio-web` — onto your PATH.
+
+**Windows (PowerShell or CMD):**
+```powershell
+cd portfolio_app
+py -m pip install .            # or: pip install .
+py -m pip install ".[pdf]"     # add CAS-PDF support (pdfplumber)
+```
+If the `portfolio-*` commands aren't found afterwards, either add Python's
+Scripts folder to PATH (pip prints its location, e.g.
+`...\PythonXY\Scripts`) or just call them module-style:
+`py -m portfolio_analyzer.cli.web`. Prefer isolation? `pipx install .` puts the
+commands on PATH in their own venv.
+
+Optional extras: `.[pdf]` (CAS PDF parsing), `.[dev]` (pytest). `openpyxl`
+(for `.xlsx`) installs automatically; CSV-only use needs nothing extra.
 
 ## Web UI
 Prefer a browser to the CLI? Run the local web app (stdlib only, no Flask):
 ```bash
-python webapp.py            # then open http://127.0.0.1:8765
+portfolio-web            # then open http://127.0.0.1:8765
 ```
 Upload any combination of a portfolio file, broker holdings CSV, CAS statement,
 MF-holdings CSV and fund-compositions file (all fields optional) and it returns
@@ -36,16 +54,16 @@ never sent anywhere.
 ## Use
 ```bash
 # From your tracker spreadsheet
-python run.py path/to/portfolio_tracker.xlsx --out dashboard.html
+portfolio-analyze path/to/portfolio_tracker.xlsx --out dashboard.html
 
 # From a broker CSV export
-python run.py sample_data/example_portfolio.csv --out dashboard.html
+portfolio-analyze sample_data/example_portfolio.csv --out dashboard.html
 
 # Pull live equity prices (Yahoo) + MF NAVs (AMFI) when online
-python run.py portfolio.xlsx --live
+portfolio-analyze portfolio.xlsx --live
 
 # Also print machine-readable JSON
-python run.py portfolio.xlsx --json
+portfolio-analyze portfolio.xlsx --json
 ```
 Open the generated `dashboard.html` in any browser.
 
@@ -82,7 +100,7 @@ cashflows to the XIRR.
 | Hidden concentration | a stock's look-through weight (direct + funds) breaches the single-stock guideline |
 | Direct∩fund overlap | a stock is held both directly and inside your funds |
 
-Thresholds live in `analyzer/rules.py::DEFAULT_THRESHOLDS` and are easy to tune.
+Thresholds live in `portfolio_analyzer/rules.py::DEFAULT_THRESHOLDS` and are easy to tune.
 The last two require look-through data (see below).
 
 ## Tax-on-switch (STCG/LTCG)
@@ -97,7 +115,7 @@ actually exiting the flagged positions (current Indian rules, post-Jul-2024):
   out-performance** the replacement must deliver just to recover the tax
 
 ```bash
-python run.py portfolio.xlsx --tax-on "Jyoti Structures,Mastek" --slab 0.30
+portfolio-analyze portfolio.xlsx --tax-on "Jyoti Structures,Mastek" --slab 0.30
 ```
 Needs quantity, price and buy date on the holdings to be exact; without a buy
 date a position is treated as short-term (conservative). **Estimate only — not
@@ -115,15 +133,15 @@ your actual portfolio. **Read-only — it never trades.**
 
 ```bash
 # broker CSV + CAS -> normalized CSVs + a dashboard
-python sync.py --broker-csv console_holdings.csv \
+portfolio-sync --broker-csv console_holdings.csv \
   --cas cas_statement.pdf --cas-password ABCDE1234F \
   --out-equity equity.csv --out-funds funds.csv --dashboard dashboard.html
 
 # Zerodha Kite
-python sync.py --kite-key $KITE_KEY --kite-token $KITE_TOKEN --out-equity equity.csv
+portfolio-sync --kite-key $KITE_KEY --kite-token $KITE_TOKEN --out-equity equity.csv
 ```
-The written `equity.csv` / `funds.csv` feed `run.py` and `monitor.py` directly,
-so the whole loop is *sync → analyse → monitor*. The response/CSV/CAS-text
+The written `equity.csv` / `funds.csv` feed `portfolio-analyze` and
+`portfolio-monitor` directly, so the whole loop is *sync → analyse → monitor*. The response/CSV/CAS-text
 parsers are pure and unit-tested; the Kite network call and PDF extraction are
 isolated and best-effort (PDF parsing needs `pip install pdfplumber`).
 
@@ -133,7 +151,7 @@ exposure is higher than either view shows. Supply fund values and each fund's
 constituents and the app combines them into one exposure map:
 
 ```bash
-python run.py portfolio.xlsx \
+portfolio-analyze portfolio.xlsx \
   --funds sample_data/example_funds.csv \
   --fund-holdings sample_data/example_fund_holdings.csv
 ```
@@ -157,15 +175,15 @@ result (holdings change ~monthly, so refetching daily is pointless):
 
 ```bash
 # parse a folder of downloaded disclosure files (xlsx/csv), cache the result
-python run.py portfolio.xlsx --funds funds.csv \
+portfolio-analyze portfolio.xlsx --funds funds.csv \
   --disclosures ./disclosures --comp-cache ~/.portfolio_monitor/comp_cache.json
 
 # later runs need only the cache (served if <35 days old)
-python run.py portfolio.xlsx --funds funds.csv \
+portfolio-analyze portfolio.xlsx --funds funds.csv \
   --comp-cache ~/.portfolio_monitor/comp_cache.json
 
 # or fetch each fund's disclosure from a URL template
-python run.py portfolio.xlsx --funds funds.csv \
+portfolio-analyze portfolio.xlsx --funds funds.csv \
   --compositions-url "https://data.example.com/{fund}.xlsx" \
   --comp-cache ~/.portfolio_monitor/comp_cache.json
 ```
@@ -189,10 +207,10 @@ SMTP email, and HTTP webhook (Slack/Discord/Zapier).
 
 ```bash
 # one shot (cron/systemd friendly)
-python monitor.py portfolio.xlsx --live
+portfolio-monitor portfolio.xlsx --live
 
 # loop every 30 min, log to a file
-PORTFOLIO_ALERT_LOG=alerts.md python monitor.py portfolio.xlsx --live --watch 30
+PORTFOLIO_ALERT_LOG=alerts.md portfolio-monitor portfolio.xlsx --live --watch 30
 
 # weekday 9:30 IST via cron, Slack + email
 # 30 9 * * 1-5  PORTFOLIO_WEBHOOK_URL=... SMTP_HOST=... ALERT_TO=you@x.com \
@@ -205,8 +223,10 @@ cooldowns) persists in `~/.portfolio_monitor/state.json` (`--state` to override,
 drive the one-shot form from cron / systemd timer / Windows Task Scheduler.
 
 ## Architecture
+`src/` layout, installed as the `portfolio_analyzer` package (entry points in
+`pyproject.toml`).
 ```
-analyzer/
+src/portfolio_analyzer/
   models.py      Holding / Portfolio data model (stdlib only)
   loader.py      xlsx + CSV import (fuzzy column matching)
   returns.py     XIRR / CAGR / SIP cashflow synthesis
@@ -221,10 +241,13 @@ analyzer/
   alerts.py      alert rules (level + change triggers)
   notify.py      notifiers: console / file / email / webhook
   report.py      self-contained HTML dashboard
-run.py           analysis CLI (one-shot dashboard)
-monitor.py       monitoring CLI (snapshot + diff + alert + notify; --watch)
-sync.py          auto-sync CLI (broker + CAS -> normalized CSVs)
-webapp.py        local web UI (stdlib http.server; upload -> dashboard)
+  sample_data/   bundled example fixtures (shipped as package data)
+  cli/
+    analyze.py   -> portfolio-analyze   (one-shot dashboard)
+    monitor.py   -> portfolio-monitor   (snapshot + diff + alert; --watch)
+    sync.py      -> portfolio-sync      (broker + CAS -> normalized CSVs)
+    web.py       -> portfolio-web       (local web UI; upload -> dashboard)
+pyproject.toml   build config + console entry points
 tests/           smoke tests over the bundled sample
 ```
 
@@ -237,8 +260,7 @@ tests/           smoke tests over the bundled sample
 - [x] Scheduled refresh + email/webhook alerts ("constantly monitor")
 - [x] Live fetcher for fund compositions (parse AMC monthly disclosures; cache)
 - [x] Broker/CAS auto-sync (Zerodha Kite / broker CSV + CAS statement)
-```
-```
+- [x] Pip-installable package with console entry points + web UI
 
 ## Tests
 ```bash

@@ -10,7 +10,13 @@ comp_cache*.json
 disclosures/
 .portfolio_monitor/
 # keep all curated sample/fixture data (overrides the broad ignores above)
-!sample_data/**
+!**/sample_data/**
 __pycache__/
 *.pyc
 .venv/
+
+# build artifacts
+build/
+dist/
+*.egg-info/
+src/*.egg-info/

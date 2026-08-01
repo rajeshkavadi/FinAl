@@ -25,9 +25,8 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analyzer.sync import (BrokerCSVProvider, ZerodhaKiteProvider,
+from portfolio_analyzer.sync import (BrokerCSVProvider, ZerodhaKiteProvider,
                            build_portfolio, to_csv)
 
 
@@ -67,9 +66,9 @@ def main(argv=None) -> int:
         print(f"  wrote {args.out_funds}")
 
     if args.dashboard:
-        from analyzer.analytics import Analysis
-        from analyzer.report import build_dashboard
-        from analyzer.rules import run_rules
+        from portfolio_analyzer.analytics import Analysis
+        from portfolio_analyzer.report import build_dashboard
+        from portfolio_analyzer.rules import run_rules
         a = Analysis(pf)
         sugs = run_rules(a)
         Path(args.dashboard).write_text(

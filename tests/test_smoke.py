@@ -5,14 +5,16 @@ Run with:  python -m pytest  (or)  python tests/test_smoke.py
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from analyzer.analytics import Analysis
-from analyzer.loader import load
-from analyzer.models import AssetType
-from analyzer.report import build_dashboard
-from analyzer.rules import run_rules
+import portfolio_analyzer as _pa
+ROOT = Path(_pa.__file__).resolve().parent   # sample_data is bundled in the package
+
+from portfolio_analyzer.analytics import Analysis
+from portfolio_analyzer.loader import load
+from portfolio_analyzer.models import AssetType
+from portfolio_analyzer.report import build_dashboard
+from portfolio_analyzer.rules import run_rules
 
 SAMPLE = ROOT / "sample_data" / "example_portfolio.csv"
 FUNDS = ROOT / "sample_data" / "example_funds.csv"
@@ -26,9 +28,9 @@ def _analyse():
 
 
 def _analyse_with_funds():
-    from analyzer.models import AssetType
-    from analyzer.loader import load_csv
-    from analyzer.lookthrough import load_compositions
+    from portfolio_analyzer.models import AssetType
+    from portfolio_analyzer.loader import load_csv
+    from portfolio_analyzer.lookthrough import load_compositions
     pf = load(SAMPLE)
     pf.holdings.extend(load_csv(FUNDS, AssetType.MUTUAL_FUND).holdings)
     comps = load_compositions(FUND_HOLDINGS)
@@ -80,7 +82,7 @@ def test_pl_layer():
 
 
 def test_return_math():
-    from analyzer.returns import cagr, xirr
+    from portfolio_analyzer.returns import cagr, xirr
     import datetime as dt
     # doubling in ~1 year ~ 100% CAGR
     c = cagr(100000, 200000, dt.date.today() - dt.timedelta(days=365))
@@ -97,7 +99,7 @@ def test_portfolio_xirr_runs():
 
 
 def test_holding_period_classification():
-    from analyzer.tax import AssetClass, is_long_term
+    from portfolio_analyzer.tax import AssetClass, is_long_term
     import datetime as dt
     asof = dt.date(2026, 7, 27)
     assert is_long_term(dt.date(2025, 1, 1), asof, 12) is True    # ~18 months
@@ -105,7 +107,7 @@ def test_holding_period_classification():
 
 
 def test_switch_tax_ltcg_exemption():
-    from analyzer.tax import AssetClass, TaxLine, estimate_switch_tax
+    from portfolio_analyzer.tax import AssetClass, TaxLine, estimate_switch_tax
     import datetime as dt
     asof = dt.date(2026, 7, 27)
     # A long-term equity gain of 2,00,000: 1,25,000 exempt, 75,000 @12.5% + 4% cess
@@ -118,7 +120,7 @@ def test_switch_tax_ltcg_exemption():
 
 
 def test_switch_tax_stcg_rate():
-    from analyzer.tax import AssetClass, TaxLine, estimate_switch_tax
+    from portfolio_analyzer.tax import AssetClass, TaxLine, estimate_switch_tax
     import datetime as dt
     asof = dt.date(2026, 7, 27)
     # Short-term gain 1,00,000 @20% + 4% cess = 20,800
@@ -139,7 +141,7 @@ def test_switch_tax_from_analysis():
 
 
 def test_lookthrough_weights_normalise():
-    from analyzer.lookthrough import load_compositions, norm
+    from portfolio_analyzer.lookthrough import load_compositions, norm
     comps = load_compositions(FUND_HOLDINGS)
     vega = comps[norm("Vega Technology Fund")]
     # weights given as percentages must become fractions
@@ -179,7 +181,7 @@ DISCLOSURE = ROOT / "sample_data" / "example_disclosure_orion.csv"
 
 
 def test_parse_disclosure_filters_debt_and_scales():
-    from analyzer.compositions_fetch import parse_disclosure
+    from portfolio_analyzer.compositions_fetch import parse_disclosure
     fc = parse_disclosure(DISCLOSURE)
     names = {c.name for c in fc.holdings}
     # equity kept, debt/TREPS/receivables/total dropped
@@ -194,9 +196,9 @@ def test_parse_disclosure_filters_debt_and_scales():
 
 def test_fetch_compositions_cache_roundtrip(tmp_path=None):
     import tempfile
-    from analyzer.compositions_fetch import (CompositionCache, discover_disclosures,
+    from portfolio_analyzer.compositions_fetch import (CompositionCache, discover_disclosures,
                                              fetch_compositions)
-    from analyzer.lookthrough import norm
+    from portfolio_analyzer.lookthrough import norm
     d = tmp_path or Path(tempfile.mkdtemp())
     cache = CompositionCache(d / "comp_cache.json")
     disc = discover_disclosures(DISCLOSURE.parent)
@@ -211,9 +213,9 @@ def test_fetch_compositions_cache_roundtrip(tmp_path=None):
 
 
 def test_fetched_compositions_feed_lookthrough():
-    from analyzer.compositions_fetch import discover_disclosures, fetch_compositions
-    from analyzer.loader import load_csv
-    from analyzer.models import AssetType
+    from portfolio_analyzer.compositions_fetch import discover_disclosures, fetch_compositions
+    from portfolio_analyzer.loader import load_csv
+    from portfolio_analyzer.models import AssetType
     pf = load(SAMPLE)
     pf.holdings.extend(load_csv(FUNDS, AssetType.MUTUAL_FUND).holdings)
     disc = discover_disclosures(DISCLOSURE.parent)
@@ -226,8 +228,8 @@ def test_fetched_compositions_feed_lookthrough():
 
 def test_monitor_seeds_and_alerts(tmp_path=None):
     import tempfile
-    from analyzer.alerts import AlertConfig, apply_cooldown, evaluate
-    from analyzer.state import MonitorState, Snapshot
+    from portfolio_analyzer.alerts import AlertConfig, apply_cooldown, evaluate
+    from portfolio_analyzer.state import MonitorState, Snapshot
     d = tmp_path or Path(tempfile.mkdtemp())
     state = MonitorState.load(d / "state.json")
 
@@ -251,8 +253,8 @@ def test_monitor_seeds_and_alerts(tmp_path=None):
 
 def test_monitor_detects_drop():
     import tempfile
-    from analyzer.alerts import AlertConfig, evaluate
-    from analyzer.state import MonitorState, Snapshot
+    from portfolio_analyzer.alerts import AlertConfig, evaluate
+    from portfolio_analyzer.state import MonitorState, Snapshot
     d = Path(tempfile.mkdtemp())
     state = MonitorState.load(d / "state.json")
 
@@ -277,7 +279,7 @@ CAS = ROOT / "sample_data" / "example_cas.txt"
 
 def test_parse_kite_holdings():
     import json as _json
-    from analyzer.sync import parse_kite_holdings
+    from portfolio_analyzer.sync import parse_kite_holdings
     hs = parse_kite_holdings(_json.loads(KITE.read_text()))
     assert len(hs) == 3
     infy = next(h for h in hs if h.name == "INFY")
@@ -289,7 +291,7 @@ def test_parse_kite_holdings():
 
 
 def test_broker_csv_provider():
-    from analyzer.sync import BrokerCSVProvider
+    from portfolio_analyzer.sync import BrokerCSVProvider
     hs = BrokerCSVProvider(BROKER).holdings()
     assert len(hs) == 3
     rel = next(h for h in hs if h.name == "RELIANCE")
@@ -297,8 +299,8 @@ def test_broker_csv_provider():
 
 
 def test_parse_cas_text():
-    from analyzer.sync import load_cas
-    from analyzer.models import AssetType
+    from portfolio_analyzer.sync import load_cas
+    from portfolio_analyzer.models import AssetType
     hs = load_cas(CAS)
     assert len(hs) == 2
     ppfc = next(h for h in hs if "Parag Parikh" in h.name)
@@ -311,8 +313,8 @@ def test_parse_cas_text():
 
 
 def test_sync_build_and_pl():
-    from analyzer.sync import BrokerCSVProvider, build_portfolio
-    from analyzer.analytics import Analysis
+    from portfolio_analyzer.sync import BrokerCSVProvider, build_portfolio
+    from portfolio_analyzer.analytics import Analysis
     pf = build_portfolio(broker=BrokerCSVProvider(BROKER), cas_path=CAS)
     assert len(pf.equities()) == 3 and len(pf.funds()) == 2
     a = Analysis(pf)
@@ -323,7 +325,7 @@ def test_sync_build_and_pl():
 
 def test_sync_to_csv_roundtrips_into_loader():
     import tempfile
-    from analyzer.sync import BrokerCSVProvider, build_portfolio, to_csv
+    from portfolio_analyzer.sync import BrokerCSVProvider, build_portfolio, to_csv
     d = Path(tempfile.mkdtemp())
     pf = build_portfolio(broker=BrokerCSVProvider(BROKER))
     to_csv(pf, d / "equity.csv", d / "funds.csv")
@@ -334,7 +336,7 @@ def test_sync_to_csv_roundtrips_into_loader():
 
 
 def test_multipart_roundtrip():
-    import webapp
+    from portfolio_analyzer.cli import web as webapp
     boundary = b"----webkitTESTBOUNDARY"
     def part(name, filename, content):
         head = f'Content-Disposition: form-data; name="{name}"'
@@ -353,7 +355,7 @@ def test_multipart_roundtrip():
 
 
 def test_webapp_assemble_and_analyze():
-    import webapp
+    from portfolio_analyzer.cli import web as webapp
     parts = {
         "broker": {"filename": "b.csv", "content": BROKER.read_bytes()},
         "cas": {"filename": "cas.txt", "content": CAS.read_bytes()},
@@ -369,7 +371,7 @@ def test_webapp_http_end_to_end():
     import http.client
     import threading
     from http.server import ThreadingHTTPServer
-    import webapp
+    from portfolio_analyzer.cli import web as webapp
     srv = ThreadingHTTPServer(("127.0.0.1", 0), webapp.Handler)
     port = srv.server_address[1]
     t = threading.Thread(target=srv.serve_forever, daemon=True)

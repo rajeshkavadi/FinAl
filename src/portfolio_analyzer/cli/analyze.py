@@ -15,12 +15,11 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from analyzer.analytics import Analysis
-from analyzer.loader import load
-from analyzer.report import build_dashboard
-from analyzer.rules import run_rules
+from portfolio_analyzer.analytics import Analysis
+from portfolio_analyzer.loader import load
+from portfolio_analyzer.report import build_dashboard
+from portfolio_analyzer.rules import run_rules
 
 
 def main(argv=None) -> int:
@@ -54,17 +53,17 @@ def main(argv=None) -> int:
     pf = load(args.input)
 
     if args.funds:
-        from analyzer.models import AssetType
-        from analyzer.loader import load_csv
+        from portfolio_analyzer.models import AssetType
+        from portfolio_analyzer.loader import load_csv
         pf.holdings.extend(load_csv(args.funds, AssetType.MUTUAL_FUND).holdings)
 
     compositions = None
     if args.fund_holdings:
-        from analyzer.lookthrough import load_compositions
+        from portfolio_analyzer.lookthrough import load_compositions
         compositions = load_compositions(args.fund_holdings)
 
     if args.disclosures or args.comp_url or args.comp_cache:
-        from analyzer.compositions_fetch import (
+        from portfolio_analyzer.compositions_fetch import (
             CompositionCache, HttpCompositionProvider, discover_disclosures,
             fetch_compositions)
         fund_names = [f.name for f in pf.funds()]
@@ -82,7 +81,7 @@ def main(argv=None) -> int:
               file=sys.stderr)
 
     if args.live:
-        from analyzer.prices import enrich_live
+        from portfolio_analyzer.prices import enrich_live
         status = enrich_live(pf)
         print(f"[live] equity updated={status['equity_updated']} "
               f"nav updated={status['nav_updated']} "
@@ -110,7 +109,7 @@ def main(argv=None) -> int:
         print(f"  [{s.severity.upper():4}] {s.title}")
 
     # Switch-tax estimate
-    from analyzer.tax import TaxConfig
+    from portfolio_analyzer.tax import TaxConfig
     names = ([n.strip() for n in args.tax_on.split(",") if n.strip()]
              or a.sell_candidates(sugs))
     if names:

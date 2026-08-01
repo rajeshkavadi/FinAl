@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portfolio-analyzer"
+version = "0.1.0"
+description = "Local MF + direct-equity portfolio analyzer, monitor and restructuring advisor (India)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["portfolio", "mutual-funds", "equity", "india", "xirr", "capital-gains"]
+dependencies = [
+    "openpyxl>=3.1",   # .xlsx import; CSV-only use needs nothing
+]
+
+[project.optional-dependencies]
+pdf = ["pdfplumber>=0.10"]   # CAS PDF parsing
+dev = ["pytest>=7"]
+
+[project.scripts]
+portfolio-analyze = "portfolio_analyzer.cli.analyze:main"
+portfolio-monitor = "portfolio_analyzer.cli.monitor:main"
+portfolio-sync    = "portfolio_analyzer.cli.sync:main"
+portfolio-web     = "portfolio_analyzer.cli.web:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+portfolio_analyzer = ["sample_data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
