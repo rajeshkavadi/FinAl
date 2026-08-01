@@ -333,6 +333,61 @@ def test_sync_to_csv_roundtrips_into_loader():
     assert rel.quantity == 40 and rel.valued_on_market
 
 
+def test_multipart_roundtrip():
+    import webapp
+    boundary = b"----webkitTESTBOUNDARY"
+    def part(name, filename, content):
+        head = f'Content-Disposition: form-data; name="{name}"'
+        if filename:
+            head += f'; filename="{filename}"'
+        return (b"--" + boundary + b"\r\n" + head.encode() + b"\r\n\r\n"
+                + content + b"\r\n")
+    body = (part("portfolio", "p.csv", b"Stock,Price,Invested\nX,10,1000\n")
+            + part("cas_password", None, b"ABCDE1234F")
+            + b"--" + boundary + b"--\r\n")
+    parsed = webapp.parse_multipart(body, boundary)
+    assert set(parsed) == {"portfolio", "cas_password"}
+    assert parsed["portfolio"]["filename"] == "p.csv"
+    assert parsed["portfolio"]["content"] == b"Stock,Price,Invested\nX,10,1000\n"
+    assert parsed["cas_password"]["content"] == b"ABCDE1234F"
+
+
+def test_webapp_assemble_and_analyze():
+    import webapp
+    parts = {
+        "broker": {"filename": "b.csv", "content": BROKER.read_bytes()},
+        "cas": {"filename": "cas.txt", "content": CAS.read_bytes()},
+        "fund_holdings": {"filename": "fh.csv", "content": FUND_HOLDINGS.read_bytes()},
+    }
+    htmlout = webapp.analyze_parts(parts)
+    assert "<!doctype html>" in htmlout.lower()
+    assert "Profit &amp; loss" in htmlout or "Profit & loss" in htmlout
+    assert "Restructuring suggestions" in htmlout
+
+
+def test_webapp_http_end_to_end():
+    import http.client
+    import threading
+    from http.server import ThreadingHTTPServer
+    import webapp
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), webapp.Handler)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", "/")
+        r = conn.getresponse()
+        assert r.status == 200
+        assert b"Portfolio Analyzer" in r.read()
+        conn.request("GET", "/sample")          # runs analysis on bundled data
+        r = conn.getresponse()
+        assert r.status == 200
+        assert b"Restructuring suggestions" in r.read()
+    finally:
+        srv.shutdown()
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

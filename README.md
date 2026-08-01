@@ -22,6 +22,17 @@ cd portfolio_app
 pip install -r requirements.txt   # only needed for .xlsx input; CSV needs nothing
 ```
 
+## Web UI
+Prefer a browser to the CLI? Run the local web app (stdlib only, no Flask):
+```bash
+python webapp.py            # then open http://127.0.0.1:8765
+```
+Upload any combination of a portfolio file, broker holdings CSV, CAS statement,
+MF-holdings CSV and fund-compositions file (all fields optional) and it returns
+the full dashboard. There's a **“Try with sample data”** button too. It binds to
+`127.0.0.1` on purpose — your files are processed in memory on your machine and
+never sent anywhere.
+
 ## Use
 ```bash
 # From your tracker spreadsheet
@@ -213,6 +224,7 @@ analyzer/
 run.py           analysis CLI (one-shot dashboard)
 monitor.py       monitoring CLI (snapshot + diff + alert + notify; --watch)
 sync.py          auto-sync CLI (broker + CAS -> normalized CSVs)
+webapp.py        local web UI (stdlib http.server; upload -> dashboard)
 tests/           smoke tests over the bundled sample
 ```
 
