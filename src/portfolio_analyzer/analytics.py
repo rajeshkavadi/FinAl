@@ -181,11 +181,12 @@ class Analysis:
             losers=[r for r in rows if r.pl < 0],
         )
 
-    def switch_tax(self, names, config=None, asof=None):
+    def switch_tax(self, names, config=None, asof=None, slab_rate=None):
         """Estimate capital-gains tax on exiting the named holdings as a batch.
 
         Only holdings that can be marked to market (quantity + price) contribute
-        a real gain; the rest are reported as needing quantities. Returns a
+        a real gain; the rest are reported as needing quantities. Rates default
+        to the regime in force on ``asof`` (today unless given). Returns a
         ``SwitchTaxReport`` (see ``tax.py``).
         """
         from .tax import AssetClass, TaxLine, estimate_switch_tax
@@ -205,7 +206,7 @@ class Analysis:
                 current_value=h.current_value,
                 buy_date=h.buy_date,
             ))
-        rep = estimate_switch_tax(lines, config=config, asof=asof)
+        rep = estimate_switch_tax(lines, config=config, asof=asof, slab_rate=slab_rate)
         if missing_value:
             rep.notes.append(
                 "No quantity/price for: " + ", ".join(missing_value)

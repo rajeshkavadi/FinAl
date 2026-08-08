@@ -141,6 +141,10 @@ actually exiting the flagged positions (current Indian rules, post-Jul-2024):
 
 - Listed equity / equity MF: **STCG 20%** (≤12m), **LTCG 12.5%** (>12m) on gains
   above the **₹1.25L** annual exemption; **debt MF** at slab (`--slab`)
+- **Fiscal-year aware:** rates follow the transfer date — trades **before
+  23-Jul-2024** use the old regime (STCG 15%, LTCG 10% over ₹1L), on/after use
+  the new one. Validated against a real SBICAP FY2023-24 CG report (a ₹30,115
+  short-term gain reproduced to the paisa).
 - Short/long-term **losses are netted within their term**; 4% cess added;
   surcharge excluded (income-dependent)
 - Reports total tax, **net proceeds**, **tax drag %**, and the **break-even
@@ -299,6 +303,8 @@ tests/           smoke tests over the bundled sample
 - [x] Pip-installable package with console entry points + local web UI
 
 ### Possible next (not built)
+- A CG-statement importer (parse SBICAP/Zerodha CG PDFs → realized gains) to
+  auto-reconcile a year's tax against the broker
 - Surface monitoring / live prices in the web UI (currently CLI-only)
 - MF Central / broker OAuth so CAS isn't a manual download
 - A holdings-database so look-through doesn't need a supplied factsheet

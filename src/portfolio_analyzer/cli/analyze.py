@@ -108,12 +108,11 @@ def main(argv=None) -> int:
     for s in sugs:
         print(f"  [{s.severity.upper():4}] {s.title}")
 
-    # Switch-tax estimate
-    from portfolio_analyzer.tax import TaxConfig
+    # Switch-tax estimate (rates resolve to the current regime by asof=today)
     names = ([n.strip() for n in args.tax_on.split(",") if n.strip()]
              or a.sell_candidates(sugs))
     if names:
-        rep = a.switch_tax(names, config=TaxConfig(slab_rate=args.slab))
+        rep = a.switch_tax(names, slab_rate=args.slab)
         if rep.lines:
             print(f"Switch-tax estimate on {len(rep.lines)} position(s): "
                   f"total tax ₹{rep.total_tax:,.0f} on ₹{rep.gross_proceeds:,.0f} "

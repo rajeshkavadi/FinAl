@@ -140,6 +140,33 @@ def test_switch_tax_from_analysis():
     assert rep.total_tax >= 0
 
 
+def test_cg_fy2324_stcg_matches_sbicap():
+    # Real row from a SBICAP FY2023-24 Capital Gains report:
+    # Onward Technologies Ltd, bought 13-Jun-2023 (Rs 97,117.91),
+    # sold 14-Dec-2023 (Rs 1,27,232.99) -> Short Term gain Rs 30,115.09.
+    from portfolio_analyzer.tax import AssetClass, TaxLine, estimate_switch_tax
+    import datetime as dt
+    line = TaxLine("Onward Technologies Ltd", AssetClass.EQUITY,
+                   invested=97117.91, current_value=127232.99,
+                   buy_date=dt.date(2023, 6, 13))
+    rep = estimate_switch_tax([line], asof=dt.date(2023, 12, 14))
+    assert rep.lines[0].term == "STCG"                       # matches "Short Term"
+    assert abs(rep.lines[0].gain - 30115.08) < 0.02          # matches Rs 30,115.09
+    assert rep.config.equity_stcg_rate == 0.15               # FY23-24 rate, not 20%
+    assert round(rep.stcg_tax) == round(30115.08 * 0.15 * 1.04)   # ~4698
+
+
+def test_cg_regime_cutover():
+    from portfolio_analyzer.tax import TaxConfig
+    import datetime as dt
+    before = TaxConfig.for_date(dt.date(2024, 7, 22))
+    after = TaxConfig.for_date(dt.date(2024, 7, 23))
+    assert (before.equity_stcg_rate, before.equity_ltcg_rate, before.ltcg_exemption) \
+        == (0.15, 0.10, 100000.0)
+    assert (after.equity_stcg_rate, after.equity_ltcg_rate, after.ltcg_exemption) \
+        == (0.20, 0.125, 125000.0)
+
+
 def test_lookthrough_weights_normalise():
     from portfolio_analyzer.lookthrough import load_compositions, norm
     comps = load_compositions(FUND_HOLDINGS)

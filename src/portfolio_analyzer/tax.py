@@ -33,6 +33,12 @@ class AssetClass(str, Enum):
     OTHER = "other"     # unlisted / other -> 24m LT threshold, 12.5%
 
 
+# Budget 2024 cutover: the transfer/sale date decides which regime applies.
+#   before 23-Jul-2024 : STCG 15% (111A), LTCG 10% (112A) over Rs 1,00,000
+#   on/after 23-Jul-2024: STCG 20%,        LTCG 12.5%       over Rs 1,25,000
+CG_REGIME_CUTOVER = date(2024, 7, 23)
+
+
 @dataclass
 class TaxConfig:
     equity_stcg_rate: float = 0.20
@@ -43,6 +49,23 @@ class TaxConfig:
     other_ltcg_rate: float = 0.125
     cess: float = 0.04                    # health & education cess on tax
     slab_rate: Optional[float] = None     # for DEBT/short-term OTHER; None=unknown
+
+    @classmethod
+    def for_date(cls, on: date, *, slab_rate: Optional[float] = None,
+                 cess: float = 0.04) -> "TaxConfig":
+        """Return the equity CG rates in force on ``on`` (the transfer date).
+
+        Use this so a past-year computation gets that year's rates rather than
+        the current ones. Defaults (a bare ``TaxConfig()``) stay on the current,
+        post-Budget-2024 regime.
+        """
+        if on < CG_REGIME_CUTOVER:
+            return cls(equity_stcg_rate=0.15, equity_ltcg_rate=0.10,
+                       ltcg_exemption=100000.0, other_ltcg_rate=0.10,
+                       cess=cess, slab_rate=slab_rate)
+        return cls(equity_stcg_rate=0.20, equity_ltcg_rate=0.125,
+                   ltcg_exemption=125000.0, other_ltcg_rate=0.125,
+                   cess=cess, slab_rate=slab_rate)
 
 
 def _add_months(d: date, months: int) -> date:
@@ -109,16 +132,24 @@ class SwitchTaxReport:
 
 
 def estimate_switch_tax(lines: list[TaxLine], config: TaxConfig | None = None,
-                        asof: Optional[date] = None) -> SwitchTaxReport:
+                        asof: Optional[date] = None,
+                        slab_rate: Optional[float] = None) -> SwitchTaxReport:
     """Estimate tax on selling ``lines`` as a batch in one financial year.
 
     Gains are netted *within* each term (short-term losses offset short-term
     gains, etc.), the LTCG exemption is applied once to the aggregate long-term
     gain, and cess is added on top. This mirrors how the batch would actually
     be assessed for the year.
+
+    When ``config`` is omitted the equity rates are resolved from ``asof`` (the
+    transfer date) via ``TaxConfig.for_date`` — so a past-year computation uses
+    that year's rates, and the current year uses the post-Budget-2024 regime.
+    Pass an explicit ``config`` to override. ``slab_rate`` applies to debt gains.
     """
-    cfg = config or TaxConfig()
     asof = asof or date.today()
+    cfg = config or TaxConfig.for_date(asof, slab_rate=slab_rate)
+    if config is not None and slab_rate is not None:
+        cfg.slab_rate = slab_rate
     rep = SwitchTaxReport(lines=lines, config=cfg, asof=asof)
 
     for ln in lines:
