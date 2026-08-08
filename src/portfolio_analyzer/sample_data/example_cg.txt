@@ -1,0 +1,18 @@
+Consolidated Capital Gain Loss Statement
+Period 01-Apr-2023 To 31-Mar-2024
+Equity: Capital Gain Details for FY 2023-24
+ScripT ISIN Qty Sale Value Purchase Value Capital Gain
+Short Term Gain with STT
+Acme Widgets
+INE111A01011 100 10Jan24 150000.00 05Aug23 1500.00 NA 1000.00 100000.00 50000.00
+Ltd
+Total
+50000.00
+Long Term Gain with STT
+Beta Industries Ltd
+INE222B01029 200 20Feb24 400000.00 01Mar22 2000.00 NA 1200.00 240000.00 160000.00
+Total
+160000.00
+Dividend & Interest
+Gamma Corp Ltd INE333C01037 15Jul23 5.00 100.00 500.00
+Total 500.00

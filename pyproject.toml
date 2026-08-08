@@ -23,6 +23,7 @@ portfolio-analyze = "portfolio_analyzer.cli.analyze:main"
 portfolio-monitor = "portfolio_analyzer.cli.monitor:main"
 portfolio-sync    = "portfolio_analyzer.cli.sync:main"
 portfolio-web     = "portfolio_analyzer.cli.web:main"
+portfolio-cg      = "portfolio_analyzer.cli.cg:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

@@ -417,6 +417,36 @@ def test_webapp_http_end_to_end():
         srv.shutdown()
 
 
+CG = ROOT / "sample_data" / "example_cg.txt"
+
+
+def test_cg_import_parses_and_excludes_dividend():
+    from portfolio_analyzer.cg import load_cg
+    import datetime as dt
+    res = load_cg(CG)
+    # two capital-gain rows; the dividend row (one date) is excluded
+    assert len(res.records) == 2
+    assert not any(r.isin == "INE333C01037" for r in res.records)   # Gamma = dividend
+    acme = next(r for r in res.records if r.isin == "INE111A01011")
+    beta = next(r for r in res.records if r.isin == "INE222B01029")
+    assert acme.term == "STCG" and abs(acme.gain - 50000.0) < 0.01
+    assert acme.scrip.startswith("Acme")                            # name reassembled
+    assert acme.buy_date == dt.date(2023, 8, 5) and acme.sell_date == dt.date(2024, 1, 10)
+    assert acme.buy_value == 100000.0 and acme.sell_value == 150000.0
+    assert beta.term == "LTCG" and abs(beta.gain - 160000.0) < 0.01
+    assert res.by_term() == {"STCG": 50000.0, "LTCG": 160000.0}
+
+
+def test_cg_recompute_tax_year_aware():
+    from portfolio_analyzer.cg import load_cg, recompute_tax
+    res = load_cg(CG)
+    tax = recompute_tax(res)
+    # both sold in FY2023-24 (pre 23-Jul-2024): STCG 15%, LTCG 10% over Rs 1L, +4% cess
+    assert round(tax["stcg_tax"]) == round(50000 * 0.15 * 1.04)          # 7800
+    assert round(tax["ltcg_tax"]) == round((160000 - 100000) * 0.10 * 1.04)  # 6240
+    assert round(tax["total_tax"]) == round(7800 + 6240)
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

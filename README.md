@@ -38,6 +38,7 @@ CLIs for everything including automation.
 | Zerodha **Kite API** sync | — | ✅ `portfolio-sync` |
 | Auto-fetch AMC disclosures + composition cache | — | ✅ `--disclosures` |
 | Custom tax targeting `--tax-on` / `--slab`, JSON export `--json` | — | ✅ |
+| **CG-statement import** (broker CG PDF → realized gains + year-aware tax) | — | ✅ `portfolio-cg` |
 
 ¹ needs **quantities** (and buy dates for XIRR) — supplied by broker CSV / CAS, or
 added to your tracker.  ² needs **fund holdings** (factsheet/disclosure) uploaded.
@@ -51,8 +52,8 @@ It's a normal pip package. From the repo root (the folder with `pyproject.toml`)
 ```bash
 pip install .
 ```
-This installs four commands — `portfolio-analyze`, `portfolio-monitor`,
-`portfolio-sync`, `portfolio-web` — onto your PATH.
+This installs five commands — `portfolio-analyze`, `portfolio-monitor`,
+`portfolio-sync`, `portfolio-web`, `portfolio-cg` — onto your PATH.
 
 **Windows (PowerShell or CMD):**
 ```powershell
@@ -181,6 +182,23 @@ The written `equity.csv` / `funds.csv` feed `portfolio-analyze` and
 parsers are pure and unit-tested; the Kite network call and PDF extraction are
 isolated and best-effort (PDF parsing needs `pip install pdfplumber`).
 
+## Capital-gains statement import (`portfolio-cg`)
+A **CG report** lists trades you already *sold* (realized gains), not current
+holdings — so this is a **tax** tool, separate from the dashboard. It parses the
+broker statement into rows and recomputes the tax those gains imply, using the
+**fiscal-year-aware** rates (each trade taxed by the regime in force on its sell
+date).
+
+```bash
+portfolio-cg statement.pdf --password ABCDE1234F   # PDF (PAN password); or .txt
+portfolio-cg statement.txt --slab 0.30 --json
+```
+Tuned for the **SBICAP Securities** CG layout (reconstructs the scrip name,
+buy/sell dates, values and gain per row; excludes dividend/interest rows). It
+recomputes tax only — it does **not** feed the portfolio dashboard. Validated
+against a real SBICAP FY2023-24 report: a ₹30,115.09 short-term gain parsed and
+taxed (at 15%) to the paisa. Needs `pip install ".[pdf]"` (or `pypdf`) for PDFs.
+
 ## Look-through (MF ↔ equity)
 Your funds hold stocks too. If you also own those stocks directly, your *true*
 exposure is higher than either view shows. Supply fund values and each fund's
@@ -274,6 +292,7 @@ src/portfolio_analyzer/
   lookthrough.py MF constituents -> combined true exposure + overlaps
   compositions_fetch.py  parse AMC monthly disclosures + cache + HTTP provider
   sync.py        broker (Kite / CSV) + CAS auto-sync -> holdings
+  cg.py          capital-gains statement importer (realized gains + tax)
   prices.py      optional live providers: Yahoo (equity), AMFI (MF NAV)
   analytics.py   concentration, HHI, sector/theme/risk, P/L, look-through
   rules.py       transparent, threshold-driven suggestion engine
@@ -287,6 +306,7 @@ src/portfolio_analyzer/
     monitor.py   -> portfolio-monitor   (snapshot + diff + alert; --watch)
     sync.py      -> portfolio-sync      (broker + CAS -> normalized CSVs)
     web.py       -> portfolio-web       (local web UI; upload -> dashboard)
+    cg.py        -> portfolio-cg        (capital-gains statement -> tax)
 pyproject.toml   build config + console entry points
 tests/           smoke tests over the bundled sample
 ```
@@ -300,11 +320,12 @@ tests/           smoke tests over the bundled sample
 - [x] Continuous monitoring + alerts (console / file / email / webhook, cooldown)
 - [x] Live fetcher for fund compositions (parse AMC monthly disclosures; cache)
 - [x] Broker/CAS auto-sync (Zerodha Kite / broker CSV + CAS statement)
+- [x] Fiscal-year-aware capital-gains rates (Budget-2024 cutover)
+- [x] Capital-gains statement importer (`portfolio-cg`; SBICAP layout)
 - [x] Pip-installable package with console entry points + local web UI
 
 ### Possible next (not built)
-- A CG-statement importer (parse SBICAP/Zerodha CG PDFs → realized gains) to
-  auto-reconcile a year's tax against the broker
+- More broker layouts for `portfolio-cg` (currently tuned for SBICAP)
 - Surface monitoring / live prices in the web UI (currently CLI-only)
 - MF Central / broker OAuth so CAS isn't a manual download
 - A holdings-database so look-through doesn't need a supplied factsheet
