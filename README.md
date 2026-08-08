@@ -105,8 +105,15 @@ The loader matches columns fuzzily (case-insensitive), so most broker exports
 work. Recognised sheets/columns:
 
 - **SIPs / MF sheet**: `Fund` · `Category` · `Monthly SIP` · `Verdict` · `Notes`
+  (the monthly amount can also be free text, e.g. *"SIP of 10000 p.m."*)
 - **Direct Equity sheet**: `Stock` · `Sector/Theme` · `Price` · `Invested` ·
-  (optional) `Quantity` · `Avg Cost` · `Buy Date` · `Risk Flag` · `Notes`
+  (optional) `Quantity` · `Avg Cost` / `Cost Price` · `Buy Date` · `Risk Flag`
+
+**Free-form workbooks work too.** You don't need named sheets or a rigid layout:
+a single "Sheet1" with two tables side-by-side (e.g. *Mutual Funds* and
+*Stocks*), a header row that isn't the first row, and `Shares` + `Cost Price`
+columns are all detected automatically. When `Shares` and `Cost Price` are
+present, the cost basis is computed as `Shares × Cost Price`.
 
 Valuation upgrades automatically with the data you provide:
 

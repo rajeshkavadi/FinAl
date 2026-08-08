@@ -447,6 +447,38 @@ def test_cg_recompute_tax_year_aware():
     assert round(tax["total_tax"]) == round(7800 + 6240)
 
 
+def test_load_xlsx_freeform_side_by_side():
+    """Free-form sheet: two side-by-side tables, header on row 3, SIP-in-text,
+    Cost Price + Shares (no live price). Mirrors a real user's Investments.xlsx."""
+    import tempfile
+    import openpyxl
+    d = Path(tempfile.mkdtemp())
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Mutual Funds", None, None, None, "Stocks", None, None, None])
+    ws.append([None] * 8)
+    ws.append(["Fund", "Nature of Investment", None, None,
+               "Stock", "Cost Price", "Shares", "Invested"])
+    ws.append(["Mirae Large and Midcap", "SIP of 10000 p.m.", None, None,
+               "Armaan", 1645, 485, 10])
+    ws.append(["Nippon small", "SIP of 5000 p.m", None, None,
+               "Afcom", 1335.4, 600, 8.01])
+    ws.append([None, None, None, None, "Freshara", 349.66, 1200, 4.19])
+    fp = d / "inv.xlsx"
+    wb.save(fp)
+
+    pf = load(fp)
+    assert len(pf.equities()) == 3 and len(pf.sips) == 2
+    armaan = next(h for h in pf.equities() if h.name == "Armaan")
+    # invested = Shares x Cost Price (rupees), NOT the ambiguous "10" (lakhs) column
+    assert round(armaan.invested) == round(485 * 1645)
+    assert armaan.quantity == 485 and armaan.avg_cost == 1645
+    assert armaan.price is None                       # "Cost Price" is not a live price
+    mirae = next(s for s in pf.sips if s.name.startswith("Mirae"))
+    assert mirae.monthly_sip == 10000                 # parsed from "SIP of 10000 p.m."
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):
