@@ -1,0 +1,53 @@
+name: build-windows-exe
+
+# Builds a standalone Windows executable (no Python needed on the target PC)
+# and publishes it to a rolling "windows-build" GitHub Release, so there's a
+# stable download link:
+#   https://github.com/<owner>/<repo>/releases/download/windows-build/PortfolioAnalyzer.exe
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "pyproject.toml"
+      - "packaging/**"
+      - ".github/workflows/build-windows.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write        # needed to publish the Release asset
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install app + build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pyinstaller pypdf
+
+      - name: Freeze to a single .exe
+        run: >
+          pyinstaller --onefile --name PortfolioAnalyzer
+          --collect-all portfolio_analyzer
+          packaging/launcher.py
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PortfolioAnalyzer-windows
+          path: dist/PortfolioAnalyzer.exe
+
+      - name: Publish to a rolling Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-build
+          name: Windows build (latest)
+          prerelease: true
+          files: dist/PortfolioAnalyzer.exe
