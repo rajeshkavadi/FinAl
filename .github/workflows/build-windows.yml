@@ -36,6 +36,9 @@ jobs:
         run: >
           pyinstaller --onefile --name PortfolioAnalyzer
           --collect-all portfolio_analyzer
+          --collect-all openpyxl
+          --collect-all pypdf
+          --hidden-import openpyxl --hidden-import pypdf
           packaging/launcher.py
 
       - name: Upload as a workflow artifact

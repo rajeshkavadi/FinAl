@@ -68,7 +68,7 @@ def parse_multipart(body: bytes, boundary: bytes) -> dict[str, dict]:
 # assemble a Portfolio from the uploaded parts (pure, testable)
 # --------------------------------------------------------------------------
 _SUFFIX = {"portfolio": ".dat", "broker": ".csv", "cas": ".txt",
-           "funds": ".csv", "fund_holdings": ".csv"}
+           "funds": ".csv", "fund_holdings": ".csv", "cg": ".pdf"}
 
 
 def _save(tmp: Path, field: str, part: dict) -> Path:
@@ -119,15 +119,75 @@ def assemble_portfolio(parts: dict[str, dict], tmp: Path):
 
 
 def analyze_parts(parts: dict[str, dict]) -> str:
-    """Assemble -> analyse -> return dashboard HTML (or raise)."""
+    """Assemble -> analyse -> return dashboard HTML (or raise).
+
+    A Capital-Gains report is a separate (tax) workflow: if one is uploaded, we
+    return the CG tax reconciliation page instead of the holdings dashboard.
+    """
     with tempfile.TemporaryDirectory() as td:
-        pf, comps = assemble_portfolio(parts, Path(td))
+        tmp = Path(td)
+        if parts.get("cg", {}).get("content"):
+            from portfolio_analyzer.cg import load_cg, recompute_tax
+            pw = parts.get("cg_password", {}).get("content", b"").decode(
+                "utf-8", "ignore").strip()
+            res = load_cg(_save(tmp, "cg", parts["cg"]), pw or None)
+            if not res.records:
+                raise ValueError(
+                    "No capital-gain rows were found in that statement. It should "
+                    "be a broker Capital-Gains report (currently tuned for the "
+                    "SBICAP layout). If it's a scanned/image PDF, text can't be "
+                    "extracted.")
+            return _cg_page(res, recompute_tax(res))
+
+        pf, comps = assemble_portfolio(parts, tmp)
         if not pf.holdings and not pf.sips:
-            raise ValueError("No holdings found in the uploaded files. Check the "
-                             "file formats (see the hints on the upload page).")
+            raise ValueError("No holdings found in the uploaded files. Put your "
+                             "tracker/Investments .xlsx in the FIRST box "
+                             "(“Portfolio file”) only — not the broker or "
+                             "CAS boxes.")
         a = Analysis(pf, compositions=comps)
         sugs = run_rules(a)
         return build_dashboard(pf, a, sugs, title="Portfolio Analysis")
+
+
+def _cg_page(res, tax) -> str:
+    def _r(x):
+        return f"₹{x:,.2f}"
+    rows = "".join(
+        f"<tr><td>{html.escape(r.term)}</td><td>{html.escape(r.scrip)}</td>"
+        f"<td class='num'>{r.buy_date}</td><td class='num'>{r.sell_date}</td>"
+        f"<td class='num'>{(r.gain or 0):,.2f}</td></tr>" for r in res.records)
+    terms = "".join(f"<div class='trow'><span>{html.escape(t)} total gain</span>"
+                    f"<b>{_r(g)}</b></div>" for t, g in res.by_term().items())
+    regimes = "".join(
+        f"<div class='trow'><span>[{html.escape(d['regime'])}] "
+        f"STCG {_r(d['stcg_gain'])} @ {d['stcg_rate']*100:.0f}% · "
+        f"LTCG {_r(d['ltcg_gain'])} @ {d['ltcg_rate']*100:.1f}% "
+        f"(−{_r(d['ltcg_exemption'])} exempt)</span>"
+        f"<b>{_r(d['stcg_tax'] + d['ltcg_tax'])}</b></div>" for d in tax["by_regime"])
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capital Gains — tax</title><style>
+body{{margin:0;font:15px/1.55 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f7f8fa;color:#101828}}
+.wrap{{max-width:760px;margin:0 auto;padding:32px 20px 64px}}
+h1{{font-size:23px;margin:0 0 4px}}.sub{{color:#667085;margin-bottom:20px}}
+.card{{background:#fff;border:1px solid #eaecf0;border-radius:12px;padding:18px;margin-bottom:14px}}
+table{{width:100%;border-collapse:collapse;font-size:13px}}
+th,td{{text-align:left;padding:7px 8px;border-bottom:1px solid #eaecf0}}.num{{text-align:right;font-variant-numeric:tabular-nums}}
+.trow{{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed #eaecf0;font-size:14px}}
+.disc{{color:#667085;font-size:12px;margin-top:16px}}a{{color:#3b82f6}}
+</style></head><body><div class="wrap">
+<h1>Capital Gains — tax reconciliation</h1>
+<div class="sub">Parsed {len(res.records)} realized-gain row(s) from your statement.
+This is a tax view, separate from the portfolio dashboard.</div>
+<div class="card"><table>
+<thead><tr><th>Term</th><th>Scrip</th><th class='num'>Buy</th><th class='num'>Sell</th><th class='num'>Gain (₹)</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<div class="card">{terms}{regimes}
+<div class='trow'><span><b>Total estimated tax</b> (incl. 4% cess)</span><b>{_r(tax['total_tax'])}</b></div></div>
+<p class="disc"><strong>Not tax advice.</strong> Rates applied per each trade's sell-date
+regime. Verify against your statement and a tax professional. <a href="/">← back</a></p>
+</div></body></html>"""
 
 
 # --------------------------------------------------------------------------
@@ -163,28 +223,44 @@ h2{{font-size:15px;margin:0 0 2px}}.disc{{color:var(--muted);font-size:12px;marg
 <div class="sub">MF + direct-equity analysis, P/L, tax, look-through — all local. Upload what you have; every field is optional.</div>
 <form action="/analyze" method="post" enctype="multipart/form-data">
   <div class="card">
-    <h2>Your holdings</h2>
+    <h2>Your holdings → the dashboard</h2>
     <div class="row">
-      {field("portfolio","Portfolio file","Tracker .xlsx (SIPs / Direct Equity / Suggested Replacements) or an equity CSV","xlsx,csv")}
-      {field("broker","Broker holdings CSV","Zerodha/Groww export: Symbol, Quantity, Average Price, Last Price","csv")}
+      {field("portfolio","★ Portfolio file — put your Investments/tracker .xlsx HERE","Your .xlsx (or an equity CSV). This one box is all you need for the dashboard.","xlsx,csv")}
+      {field("broker","Broker holdings CSV (optional)","Zerodha/Groww export: Symbol, Quantity, Average Price, Last Price. Leave empty if using the .xlsx above.","csv")}
     </div>
     <div class="row">
-      {field("cas","CAS statement (MF)","CAMS/KFintech .pdf (PAN password below) or a .txt/.csv export","pdf,txt,csv")}
+      {field("cas","CAS statement — mutual funds (optional)","CAMS/KFintech .pdf (PAN password below) or a .txt/.csv. NOT for a Capital-Gains report.","pdf,txt,csv")}
       <div class="f"><label for="cas_password">CAS password (PAN)</label>
         <input type="text" id="cas_password" name="cas_password" placeholder="ABCDE1234F" autocomplete="off">
-        <div class="hint">Only used to open the PDF locally; never stored.</div></div>
+        <div class="hint">Only used to open the CAS PDF locally; never stored.</div></div>
     </div>
   </div>
   <div class="card">
-    <h2>Optional — look-through</h2>
+    <h2>Optional — fund look-through</h2>
     <div class="row">
       {field("funds","MF holdings CSV","Fund, Units, NAV, Invested — gives funds a value for look-through","csv")}
       {field("fund_holdings","Fund compositions","Fund, Stock, Weight[, Sector] (or JSON) from factsheets","csv,json")}
     </div>
   </div>
   <div class="bar">
-    <button type="submit">Analyze</button>
+    <button type="submit">Analyze holdings</button>
     <a href="/sample"><button type="button" class="ghost">Try with sample data</button></a>
+  </div>
+</form>
+
+<form action="/analyze" method="post" enctype="multipart/form-data">
+  <div class="card">
+    <h2>Capital-Gains report → tax (separate)</h2>
+    <div class="sub" style="margin:0 0 6px">A CG report lists trades you already
+    <em>sold</em> (e.g. your SBICAP CG PDF). It produces a tax reconciliation, not
+    the holdings dashboard. Upload it here on its own.</div>
+    <div class="row">
+      {field("cg","Capital-Gains statement (SBICAP .pdf / .txt)","Broker CG report. Realized STCG/LTCG, recomputed per year.","pdf,txt")}
+      <div class="f"><label for="cg_password">PDF password (if any)</label>
+        <input type="text" id="cg_password" name="cg_password" placeholder="usually your PAN" autocomplete="off">
+        <div class="hint">Only used to open the PDF locally; never stored.</div></div>
+    </div>
+    <div class="bar"><button type="submit">Compute capital-gains tax</button></div>
   </div>
 </form>
 <p class="disc"><strong>Not investment advice.</strong> Files are processed in memory on this machine and not sent anywhere. Verify all figures against your broker/demat statements.</p>
