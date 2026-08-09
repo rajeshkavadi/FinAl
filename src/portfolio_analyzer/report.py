@@ -274,6 +274,7 @@ def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
     now = _dt.datetime.now().strftime("%d %b %Y, %H:%M")
     basis = ("live/market value" if any(h.valued_on_market for h in pf.holdings)
              else "invested (cost) basis")
+    from . import __version__ as _ver
 
     kpis = [
         ("Direct equity", _rupees(a.equity_total)),
@@ -339,11 +340,12 @@ h2{{font-size:17px;margin:30px 0 12px}}
 .lred{{background:#fef3f2;color:#b42318}}
 .lamb{{background:#fffaeb;color:#b54708}}
 code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
+.ver{{font-size:12px;font-weight:600;color:#fff;background:#3b82f6;border-radius:20px;padding:2px 9px;vertical-align:middle}}
 .lbanner{{background:#eff8ff;border:1px solid #b2ddff;color:#175cd3;border-radius:10px;padding:10px 14px;margin:14px 0 4px;font-size:13px}}
 .lbnote{{color:#344054;font-size:12px;margin-top:5px}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
-<h1>{html.escape(title)}</h1>
+<h1>{html.escape(title)} <span class="ver">v{_ver}</span></h1>
 <div class="sub">Generated {now} · valued on {basis} ·
 <span class="pill" style="background:#fef3f2;color:#b42318">{high_flags} high</span>
 <span class="pill" style="background:#fffaeb;color:#b54708">{warn_flags} review</span></div>

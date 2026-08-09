@@ -23,7 +23,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-from portfolio_analyzer import sample_path
+from portfolio_analyzer import __version__ as _APP_VERSION, sample_path
+
+
+def _app_version() -> str:
+    return _APP_VERSION
 from portfolio_analyzer.analytics import Analysis
 from portfolio_analyzer.loader import load, load_csv
 from portfolio_analyzer.models import AssetType, Portfolio
@@ -230,9 +234,10 @@ button:hover{{filter:brightness(1.05)}}.ghost{{background:#fff;color:var(--ink);
 .bar{{display:flex;gap:12px;align-items:center;margin-top:8px}}
 .live{{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin:6px 0 2px}}
 .live input{{width:auto}}
+.ver{{font-size:12px;font-weight:600;color:#fff;background:#3b82f6;border-radius:20px;padding:2px 9px;vertical-align:middle;margin-left:6px}}
 h2{{font-size:15px;margin:0 0 2px}}.disc{{color:var(--muted);font-size:12px;margin-top:18px}}
 </style></head><body><div class="wrap">
-<h1>Portfolio Analyzer</h1>
+<h1>Portfolio Analyzer <span class="ver">v{_app_version()}</span></h1>
 <div class="sub">MF + direct-equity analysis, P/L, tax, look-through — all local. Upload what you have; every field is optional.</div>
 <form action="/analyze" method="post" enctype="multipart/form-data">
   <div class="card">
