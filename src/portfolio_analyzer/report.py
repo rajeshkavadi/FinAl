@@ -224,10 +224,48 @@ def _suggestions_html(sugs: list[Suggestion]) -> str:
     return "".join(cards)
 
 
+def _live_banner(pf: Portfolio, status: dict | None) -> str:
+    """A small strip summarising the live-NAV/price enrichment, if it ran."""
+    if not status:
+        return ""
+    from .models import AssetType
+    bits = []
+    if status.get("nav_total"):
+        asof = f" (as of {status['as_of']})" if status.get("as_of") else ""
+        bits.append(f"Live NAV matched for <b>{status['nav_updated']}/"
+                    f"{status['nav_total']}</b> funds{asof}")
+    if status.get("equity_total"):
+        bits.append(f"live price for <b>{status['equity_updated']}/"
+                    f"{status['equity_total']}</b> stocks")
+    if not bits:
+        return ""
+    # funds we priced but can't value because units are unknown
+    priced_no_units = [h for h in pf.holdings
+                       if h.asset_type == AssetType.MUTUAL_FUND
+                       and h.price is not None and h.quantity is None]
+    note = ""
+    if priced_no_units:
+        note = ("<div class='lbnote'>To turn NAV into current value &amp; gains, add a "
+                "<b>Units</b> column to your fund rows (or upload your CAS, which carries "
+                "units).</div>")
+    unmatched = status.get("unmatched") or []
+    if unmatched:
+        show = ", ".join(html.escape(u) for u in unmatched[:4])
+        more = f" +{len(unmatched) - 4} more" if len(unmatched) > 4 else ""
+        note += (f"<div class='lbnote'>No AMFI match for: {show}{more}. "
+                 "Add the scheme's <b>ISIN</b> for an exact match.</div>")
+    if status.get("errors"):
+        note += ("<div class='lbnote'>Live data unavailable ("
+                 + html.escape("; ".join(status["errors"]))
+                 + ") — showing imported/cost values.</div>")
+    return f"<div class='lbanner'>📈 {' · '.join(bits)}{note}</div>"
+
+
 def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
-                    *, title: str = "Portfolio Analysis") -> str:
+                    *, title: str = "Portfolio Analysis",
+                    live_status: dict | None = None) -> str:
     now = _dt.datetime.now().strftime("%d %b %Y, %H:%M")
-    basis = ("live/market value" if any(h.valued_on_market for h in pf.equities())
+    basis = ("live/market value" if any(h.valued_on_market for h in pf.holdings)
              else "invested (cost) basis")
 
     kpis = [
@@ -294,13 +332,15 @@ h2{{font-size:17px;margin:30px 0 12px}}
 .lred{{background:#fef3f2;color:#b42318}}
 .lamb{{background:#fffaeb;color:#b54708}}
 code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
+.lbanner{{background:#eff8ff;border:1px solid #b2ddff;color:#175cd3;border-radius:10px;padding:10px 14px;margin:14px 0 4px;font-size:13px}}
+.lbnote{{color:#344054;font-size:12px;margin-top:5px}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
 <h1>{html.escape(title)}</h1>
 <div class="sub">Generated {now} · valued on {basis} ·
 <span class="pill" style="background:#fef3f2;color:#b42318">{high_flags} high</span>
 <span class="pill" style="background:#fffaeb;color:#b54708">{warn_flags} review</span></div>
-
+{_live_banner(pf, live_status)}
 <div class="kpis">{kpi_html}</div>
 
 <h2>Profit &amp; loss</h2>

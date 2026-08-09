@@ -479,6 +479,73 @@ def test_load_xlsx_freeform_side_by_side():
     assert mirae.monthly_sip == 10000                 # parsed from "SIP of 10000 p.m."
 
 
+_FAKE_AMFI = """Open Ended Schemes ( Equity Scheme )
+
+120503;INF789F01XX1;;UTI Flexi Cap Fund - Direct Plan - Growth;350.5000;08-Aug-2026
+120504;INF789F01XX2;;UTI Flexi Cap Fund - Regular Plan - Growth;300.2000;08-Aug-2026
+100111;INF109K01XX9;;ICICI Prudential Large & Mid Cap Fund - Direct Plan - Growth;900.1000;08-Aug-2026
+100222;INF769K01XX0;;Mirae Asset Large & Midcap Fund - Direct Plan - IDCW;88.4000;08-Aug-2026
+100223;INF769K01XX1;;Mirae Asset Large & Midcap Fund - Direct Plan - Growth;140.7000;08-Aug-2026
+"""
+
+
+def _fake_nav_provider():
+    from portfolio_analyzer.prices import AMFINavProvider
+    ap = AMFINavProvider()
+    ap.load_text(_FAKE_AMFI)
+    return ap
+
+
+def test_amfi_fuzzy_name_match_word_order_and_plan():
+    ap = _fake_nav_provider()
+    # informal name (no "- Plan -", different spacing) still resolves
+    assert ap.nav(name="UTI Flexi Cap Fund Direct Growth") == 350.5
+    assert ap.nav(name="ICICI Prudential Large & Mid Cap Direct Growth") == 900.1
+    assert ap.as_of == "08-Aug-2026"
+
+
+def test_amfi_respects_direct_vs_regular():
+    ap = _fake_nav_provider()
+    # a Regular-plan query must not be marked with the Direct-plan NAV
+    assert ap.nav(name="UTI Flexi Cap Fund Regular Growth") == 300.2
+
+
+def test_amfi_respects_growth_vs_idcw():
+    ap = _fake_nav_provider()
+    assert ap.nav(name="Mirae Asset Large & Midcap Direct Growth") == 140.7
+    assert ap.nav(name="Mirae Asset Large & Midcap Direct IDCW") == 88.4
+
+
+def test_amfi_isin_beats_name():
+    ap = _fake_nav_provider()
+    # ISIN wins even if the name is blank/garbled
+    assert ap.nav(isin="INF109K01XX9", name="something unrelated") == 900.1
+
+
+def test_amfi_no_match_returns_none():
+    ap = _fake_nav_provider()
+    assert ap.nav(name="Quant Small Cap Fund Direct Growth") is None
+
+
+def test_enrich_live_marks_funds_to_market():
+    from portfolio_analyzer.models import Holding, Portfolio
+    from portfolio_analyzer.prices import enrich_live
+    pf = Portfolio()
+    pf.holdings.append(Holding(
+        name="UTI Flexi Cap Fund Direct Growth",
+        asset_type=AssetType.MUTUAL_FUND, invested=50000, quantity=160.0))
+    pf.holdings.append(Holding(
+        name="Totally Unknown Fund Direct Growth",
+        asset_type=AssetType.MUTUAL_FUND, invested=20000, quantity=100))
+    status = enrich_live(pf, equities=False, _nav_provider=_fake_nav_provider())
+    assert status["nav_updated"] == 1 and status["nav_total"] == 2
+    assert "Totally Unknown Fund Direct Growth" in status["unmatched"]
+    uti = pf.holdings[0]
+    assert uti.price == 350.5 and uti.valued_on_market
+    assert round(uti.current_value) == round(160.0 * 350.5)
+    assert uti.unrealised_pl > 0            # 160*350.5 = 56,080 vs 50,000 invested
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

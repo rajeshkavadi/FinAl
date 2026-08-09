@@ -145,9 +145,20 @@ def analyze_parts(parts: dict[str, dict]) -> str:
                              "tracker/Investments .xlsx in the FIRST box "
                              "(“Portfolio file”) only — not the broker or "
                              "CAS boxes.")
+        live_status = None
+        want_live = parts.get("live", {}).get("content", b"").decode(
+            "utf-8", "ignore").strip().lower() in ("on", "1", "true", "yes")
+        if want_live:
+            try:
+                from portfolio_analyzer.prices import enrich_live
+                live_status = enrich_live(pf)
+            except Exception as e:  # never let a network hiccup break the dashboard
+                live_status = {"errors": [str(e)], "nav_total": len(pf.funds())}
+
         a = Analysis(pf, compositions=comps)
         sugs = run_rules(a)
-        return build_dashboard(pf, a, sugs, title="Portfolio Analysis")
+        return build_dashboard(pf, a, sugs, title="Portfolio Analysis",
+                               live_status=live_status)
 
 
 def _cg_page(res, tax) -> str:
@@ -217,6 +228,8 @@ input[type=text]{{width:100%;padding:9px;border:1px solid var(--line);border-rad
 button{{background:var(--acc);color:#fff;border:0;border-radius:9px;padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer}}
 button:hover{{filter:brightness(1.05)}}.ghost{{background:#fff;color:var(--ink);border:1px solid var(--line)}}
 .bar{{display:flex;gap:12px;align-items:center;margin-top:8px}}
+.live{{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin:6px 0 2px}}
+.live input{{width:auto}}
 h2{{font-size:15px;margin:0 0 2px}}.disc{{color:var(--muted);font-size:12px;margin-top:18px}}
 </style></head><body><div class="wrap">
 <h1>Portfolio Analyzer</h1>
@@ -242,6 +255,8 @@ h2{{font-size:15px;margin:0 0 2px}}.disc{{color:var(--muted);font-size:12px;marg
       {field("fund_holdings","Fund compositions","Fund, Stock, Weight[, Sector] (or JSON) from factsheets","csv,json")}
     </div>
   </div>
+  <label class="live"><input type="checkbox" name="live" value="on" checked>
+    Fetch live end-of-day NAV (AMFI) &amp; stock prices — needs internet</label>
   <div class="bar">
     <button type="submit">Analyze holdings</button>
     <a href="/sample"><button type="button" class="ghost">Try with sample data</button></a>
