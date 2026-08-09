@@ -546,6 +546,61 @@ def test_enrich_live_marks_funds_to_market():
     assert uti.unrealised_pl > 0            # 160*350.5 = 56,080 vs 50,000 invested
 
 
+_YSEARCH = b'''{"quotes":[
+  {"symbol":"ARMANFIN.BO","quoteType":"EQUITY"},
+  {"symbol":"ARMANFIN.NS","quoteType":"EQUITY"},
+  {"symbol":"SOMEETF","quoteType":"ETF"}
+]}'''
+
+
+def test_yahoo_search_prefers_nse():
+    from portfolio_analyzer.prices import YahooEquityProvider
+    assert YahooEquityProvider.parse_search(_YSEARCH) == "ARMANFIN.NS"
+
+
+def test_yahoo_search_falls_back_to_bse():
+    from portfolio_analyzer.prices import YahooEquityProvider
+    raw = b'{"quotes":[{"symbol":"XYZ.BO","quoteType":"EQUITY"}]}'
+    assert YahooEquityProvider.parse_search(raw) == "XYZ.BO"
+
+
+def test_equity_symbol_column_is_captured():
+    import tempfile
+    import openpyxl
+    d = Path(tempfile.mkdtemp())
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Direct Equity"
+    ws.append(["Stock", "Symbol", "Shares", "Cost Price"])
+    ws.append(["Arman Financial Services", "ARMANFIN", 485, 1645])
+    fp = d / "eq.xlsx"; wb.save(fp)
+    pf = load(fp)
+    h = pf.equities()[0]
+    assert h.symbol == "ARMANFIN" and h.quantity == 485
+
+
+def test_enrich_live_resolves_name_and_prices_stock():
+    from portfolio_analyzer.models import Holding, Portfolio
+    from portfolio_analyzer.prices import enrich_live
+
+    class FakeYP:
+        def resolve_symbol(self, name):
+            return "ARMANFIN.NS" if "arman" in name.lower() else None
+        def price(self, tk):
+            return 2032.0 if tk == "ARMANFIN.NS" else None
+
+    pf = Portfolio()
+    pf.holdings.append(Holding(name="Arman Financial Services",
+                               asset_type=AssetType.EQUITY, invested=800000, quantity=485))
+    pf.holdings.append(Holding(name="No Such Co",
+                               asset_type=AssetType.EQUITY, invested=10000, quantity=10))
+    st = enrich_live(pf, funds=False, _equity_provider=FakeYP())
+    assert st["equity_updated"] == 1 and st["equity_total"] == 2
+    assert "No Such Co" in st["equity_unmatched"]
+    arman = pf.holdings[0]
+    assert arman.price == 2032.0 and arman.symbol == "ARMANFIN.NS"
+    assert arman.valued_on_market and round(arman.current_value) == 485 * 2032
+    assert arman.unrealised_pl > 0            # 985,520 vs 800,000 invested
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

@@ -66,19 +66,75 @@ def _option(name: str) -> Optional[str]:
 
 # --------------------------------------------------------------------------
 class YahooEquityProvider:
-    """Latest close for an NSE symbol via Yahoo Finance's public chart API."""
+    """Live-ish price for an Indian stock via Yahoo Finance's public API.
 
-    URL = ("https://query1.finance.yahoo.com/v8/finance/chart/"
-           "{sym}.NS?interval=1d&range=1d")
+    Two steps, because a portfolio tracker usually holds a *company name*
+    ("Arman Financial Services"), not a Yahoo ticker ("ARMANFIN.NS"):
 
-    def price(self, symbol: str) -> Optional[float]:
-        raw = _get(self.URL.format(sym=symbol))
+      resolve_symbol(name)  name  -> best NSE/BSE ticker  (Yahoo search)
+      price(ticker)         ticker -> latest regular-market price
+
+    Both are best-effort and short-timeout so a blocked/slow network can't hang
+    the dashboard. Results are cached for the process lifetime.
+    """
+
+    CHART = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+             "{tk}?interval=1d&range=1d")
+    SEARCH = ("https://query1.finance.yahoo.com/v1/finance/search"
+              "?q={q}&quotesCount=8&newsCount=0")
+
+    def __init__(self, timeout: int = 6) -> None:
+        self.timeout = timeout
+        self._sym_cache: dict[str, Optional[str]] = {}
+
+    # -- name -> ticker -------------------------------------------------
+    def resolve_symbol(self, name: str) -> Optional[str]:
+        key = name.strip().lower()
+        if key in self._sym_cache:
+            return self._sym_cache[key]
+        result = self._resolve_uncached(name)
+        self._sym_cache[key] = result
+        return result
+
+    def _resolve_uncached(self, name: str) -> Optional[str]:
+        import urllib.parse
+        raw = _get(self.SEARCH.format(q=urllib.parse.quote(name)), self.timeout)
+        if not raw:
+            return None
+        return self.parse_search(raw)
+
+    @staticmethod
+    def parse_search(raw: bytes) -> Optional[str]:
+        """Pick the best Indian-exchange ticker from a Yahoo search payload.
+
+        Prefers NSE (.NS) over BSE (.BO); ignores non-equity / non-India hits.
+        """
+        try:
+            quotes = json.loads(raw).get("quotes", [])
+        except Exception:
+            return None
+        nse = bo = None
+        for q in quotes:
+            sym = q.get("symbol", "")
+            if q.get("quoteType") not in (None, "EQUITY"):
+                continue
+            if sym.endswith(".NS") and nse is None:
+                nse = sym
+            elif sym.endswith(".BO") and bo is None:
+                bo = sym
+        return nse or bo
+
+    # -- ticker -> price ------------------------------------------------
+    def price(self, ticker: str) -> Optional[float]:
+        # bare symbol (from a user's Symbol column) -> assume NSE
+        tk = ticker if ("." in ticker) else f"{ticker}.NS"
+        raw = _get(self.CHART.format(tk=tk), self.timeout)
         if not raw:
             return None
         try:
-            data = json.loads(raw)
-            meta = data["chart"]["result"][0]["meta"]
-            return float(meta.get("regularMarketPrice"))
+            meta = json.loads(raw)["chart"]["result"][0]["meta"]
+            p = meta.get("regularMarketPrice")
+            return float(p) if p is not None else None
         except Exception:
             return None
 
@@ -171,11 +227,12 @@ class AMFINavProvider:
 
 
 def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
-                _nav_provider: "AMFINavProvider | None" = None) -> dict:
+                _nav_provider: "AMFINavProvider | None" = None,
+                _equity_provider: "YahooEquityProvider | None" = None) -> dict:
     """Attach live prices/NAVs in place. Returns a status report for the UI.
 
-    ``_nav_provider`` lets callers (and tests) inject a pre-loaded provider
-    instead of hitting the network.
+    ``_nav_provider`` / ``_equity_provider`` let callers (and tests) inject
+    pre-loaded providers instead of hitting the network.
     """
     status = {
         "equity_updated": 0, "equity_total": 0,
@@ -184,14 +241,30 @@ def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
     }
 
     if equities:
-        yp = YahooEquityProvider()
-        for h in pf.holdings:
-            if h.asset_type == AssetType.EQUITY and h.symbol:
-                status["equity_total"] += 1
-                p = yp.price(h.symbol)
-                if p is not None:
-                    h.price = p
-                    status["equity_updated"] += 1
+        eq = [h for h in pf.holdings if h.asset_type == AssetType.EQUITY]
+        status["equity_total"] = len(eq)
+        if eq:
+            yp = _equity_provider or YahooEquityProvider()
+
+            def _one(h) -> bool:
+                # a Symbol/Ticker column wins; otherwise resolve the name
+                tk = h.symbol or yp.resolve_symbol(h.name)
+                if not tk:
+                    return False
+                p = yp.price(tk)
+                if p is None:
+                    return False
+                h.price = p
+                h.symbol = tk           # remember what we resolved to
+                return True
+
+            # fetch in parallel with a bounded pool so 7 stocks take ~one
+            # round-trip, not seven, and a slow name never stalls the page
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(8, len(eq))) as ex:
+                results = list(ex.map(_one, eq))
+            status["equity_updated"] = sum(1 for r in results if r)
+            status["equity_unmatched"] = [h.name for h, r in zip(eq, results) if not r]
 
     if funds:
         mf = [h for h in pf.holdings if h.asset_type == AssetType.MUTUAL_FUND]

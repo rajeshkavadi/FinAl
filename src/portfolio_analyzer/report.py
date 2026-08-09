@@ -254,6 +254,13 @@ def _live_banner(pf: Portfolio, status: dict | None) -> str:
         more = f" +{len(unmatched) - 4} more" if len(unmatched) > 4 else ""
         note += (f"<div class='lbnote'>No AMFI match for: {show}{more}. "
                  "Add the scheme's <b>ISIN</b> for an exact match.</div>")
+    eq_unmatched = status.get("equity_unmatched") or []
+    if eq_unmatched:
+        show = ", ".join(html.escape(u) for u in eq_unmatched[:4])
+        more = f" +{len(eq_unmatched) - 4} more" if len(eq_unmatched) > 4 else ""
+        note += (f"<div class='lbnote'>Couldn't find a live price for: {show}{more}. "
+                 "Add a <b>Symbol</b> column with the NSE ticker (e.g. "
+                 "<code>ARMANFIN</code>) for these stocks.</div>")
     if status.get("errors"):
         note += ("<div class='lbnote'>Live data unavailable ("
                  + html.escape("; ".join(status["errors"]))

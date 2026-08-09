@@ -239,6 +239,8 @@ def _parse_equity(rows: list[list]) -> list[Holding]:
         i_price = None
     i_inv = _find(hdr, "invested", "value", "amount", "corpus")
     i_qty = _find(hdr, "qty", "quantity", "shares", "units")
+    i_sym = _find(hdr, "symbol", "ticker", "nse", "bse", "trading")
+    i_isin = _find(hdr, "isin")
     i_bdate = _find(hdr, "buy date", "purchase date", "acquired", "date")
     i_risk = _find(hdr, "risk")
     i_notes = _find(hdr, "note")
@@ -255,6 +257,7 @@ def _parse_equity(rows: list[list]) -> list[Holding]:
             invested = qty * avg
         else:
             invested = inv or 0.0
+        sym = str(cells[i_sym]).strip() if i_sym is not None and cells[i_sym] else None
         out.append(Holding(
             name=str(cells[i_name]).strip(),
             asset_type=AssetType.EQUITY,
@@ -263,6 +266,8 @@ def _parse_equity(rows: list[list]) -> list[Holding]:
             price=_num(cells[i_price]) if i_price is not None else None,
             quantity=qty,
             avg_cost=avg,
+            symbol=sym or None,
+            isin=str(cells[i_isin]).strip() if i_isin is not None and cells[i_isin] else None,
             buy_date=_date(cells[i_bdate]) if i_bdate is not None else None,
             risk_flag=str(cells[i_risk]).strip() if i_risk is not None and cells[i_risk] else None,
             notes=str(cells[i_notes]).strip() if i_notes is not None and cells[i_notes] else "",
