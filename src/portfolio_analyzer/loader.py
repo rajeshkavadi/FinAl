@@ -279,9 +279,11 @@ def _parse_funds(rows: list[list]) -> list[Holding]:
     hdr = rows[0]
     i_name = _find(hdr, "fund", "scheme", "name")
     i_cat = _find(hdr, "category")
-    i_inv = _find(hdr, "invested", "value", "cost", "amount", "corpus")
+    # explicit cost words only — never mistake a "Current Value" column for cost
+    i_inv = _find(hdr, "invested", "cost", "amount", "corpus")
     i_units = _find(hdr, "units", "quantity", "qty")
-    i_nav = _find(hdr, "nav", "price")
+    i_nav = _find(hdr, "nav")            # live NAV is fetched; only take an explicit NAV col
+    i_sip = _find(hdr, "sip per month", "monthly sip", "sip amount", "monthly", "sip")
     i_isin = _find(hdr, "isin")
     i_risk = _find(hdr, "risk")
     i_notes = _find(hdr, "note")
@@ -289,6 +291,7 @@ def _parse_funds(rows: list[list]) -> list[Holding]:
     for cells in rows[1:]:
         if _is_total_row(cells) or i_name is None or not cells[i_name]:
             continue
+        monthly = _num(cells[i_sip]) if i_sip is not None else None
         out.append(Holding(
             name=str(cells[i_name]).strip(),
             asset_type=AssetType.MUTUAL_FUND,
@@ -300,6 +303,7 @@ def _parse_funds(rows: list[list]) -> list[Holding]:
             isin=str(cells[i_isin]).strip() if i_isin is not None and cells[i_isin] else None,
             risk_flag=str(cells[i_risk]).strip() if i_risk is not None and cells[i_risk] else None,
             notes=str(cells[i_notes]).strip() if i_notes is not None and cells[i_notes] else "",
+            monthly_sip=monthly,
         ))
     return out
 

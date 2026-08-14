@@ -601,6 +601,77 @@ def test_enrich_live_resolves_name_and_prices_stock():
     assert arman.unrealised_pl > 0            # 985,520 vs 800,000 invested
 
 
+def test_equity_classifies_no_symbol_vs_no_quote():
+    from portfolio_analyzer.models import Holding, Portfolio
+    from portfolio_analyzer.prices import enrich_live
+
+    class FakeYP:
+        def resolve_symbol(self, name):
+            return None                      # can't identify by name
+        def price(self, tk):
+            return 100.0 if tk == "GOODSTK" else None   # SME ticker has no quote
+
+    pf = Portfolio()
+    # has a symbol but source has no quote (SME) -> keeps its imported price
+    pf.holdings.append(Holding(name="SME Co", asset_type=AssetType.EQUITY,
+                               invested=1000, quantity=10, price=95.0, symbol="AFCOM"))
+    # no symbol and unresolvable -> no_symbol
+    pf.holdings.append(Holding(name="Mystery Co", asset_type=AssetType.EQUITY,
+                               invested=1000, quantity=10))
+    # has a symbol with a quote -> ok
+    pf.holdings.append(Holding(name="Good Co", asset_type=AssetType.EQUITY,
+                               invested=1000, quantity=10, symbol="GOODSTK"))
+    st = enrich_live(pf, funds=False, _equity_provider=FakeYP())
+    assert st["equity_updated"] == 1
+    assert st["equity_no_symbol"] == ["Mystery Co"]
+    assert st["equity_no_quote"] == ["SME Co"]
+    assert pf.holdings[0].price == 95.0          # SME kept its imported price
+
+
+def test_mfapi_fallback_used_when_amfi_down():
+    from portfolio_analyzer.models import Holding, Portfolio
+    from portfolio_analyzer.prices import enrich_live, AMFINavProvider, MFApiProvider
+
+    down = AMFINavProvider()                     # never loaded -> load() will be attempted
+    down.load = lambda: False                    # force "AMFI unreachable"
+
+    class FakeMFApi(MFApiProvider):
+        def nav(self, *, isin=None, name=None):
+            self.as_of = "08-Aug-2026"
+            return 330.0 if "uti" in (name or "").lower() else None
+
+    pf = Portfolio()
+    pf.holdings.append(Holding(name="UTI Flexi Cap Fund Direct Growth",
+                               asset_type=AssetType.MUTUAL_FUND, invested=50000, quantity=160))
+    st = enrich_live(pf, equities=False, _nav_provider=down, _mfapi_provider=FakeMFApi())
+    assert st["nav_updated"] == 1 and st["as_of"] == "08-Aug-2026"
+    assert any("mfapi" in e for e in st["errors"])
+    assert pf.holdings[0].price == 330.0
+
+
+def test_mfapi_search_best_code_matches_plan():
+    from portfolio_analyzer.prices import MFApiProvider
+    raw = (b'[{"schemeCode":1,"schemeName":"UTI Flexi Cap Fund - Regular Plan - Growth"},'
+           b'{"schemeCode":2,"schemeName":"UTI Flexi Cap Fund - Direct Plan - Growth"}]')
+    assert MFApiProvider._best_code(raw, "UTI Flexi Cap Fund Direct Growth") == 2
+
+
+def test_funds_sheet_captures_monthly_sip():
+    import tempfile
+    import openpyxl
+    d = Path(tempfile.mkdtemp())
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Mutual Funds"
+    ws.append(["Fund", "Category", "SIP PER MONTH", "UNITS", "CURRENT VALUE"])
+    ws.append(["UTI Flexi Cap Fund - Direct Plan - Growth", "Flexi Cap", 10000, None, None])
+    ws.append(["Nippon India Small Cap - Direct Growth", "Small Cap", 5000, None, None])
+    fp = d / "mf.xlsx"; wb.save(fp)
+    pf = load(fp)
+    a = Analysis(pf)
+    assert a.sip_total_monthly == 15000          # summed from the fund rows
+    # 'CURRENT VALUE' must NOT be read as invested (cost)
+    assert all(h.invested == 0 for h in pf.funds())
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

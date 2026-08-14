@@ -177,11 +177,14 @@ class AMFINavProvider:
         self.loaded = bool(self._catalogue)
 
     def load(self) -> bool:
-        raw = _get(self.URL, timeout=30)
-        if not raw:
-            return False
-        self._ingest(raw.decode("utf-8", "ignore"))
-        return self.loaded
+        # the dump is ~8 MB; give it room and one retry before giving up
+        for timeout in (45, 45):
+            raw = _get(self.URL, timeout=timeout)
+            if raw:
+                self._ingest(raw.decode("utf-8", "ignore"))
+                if self.loaded:
+                    return True
+        return False
 
     def load_text(self, text: str) -> bool:
         """Ingest an already-fetched feed (used by tests / offline caches)."""
@@ -226,13 +229,76 @@ class AMFINavProvider:
         return best[1] if best else None
 
 
+class MFApiProvider:
+    """Per-scheme NAV from the free mfapi.in mirror (small JSON responses).
+
+    Used as a fallback when the 8 MB AMFI dump can't be reached — a home/office
+    firewall sometimes blocks amfiindia.com but not api.mfapi.in. Two small
+    calls per fund (search + latest), so it's only worth it for a handful.
+    """
+
+    SEARCH = "https://api.mfapi.in/mf/search?q={q}"
+    LATEST = "https://api.mfapi.in/mf/{code}/latest"
+
+    def __init__(self, timeout: int = 8) -> None:
+        self.timeout = timeout
+        self.as_of: Optional[str] = None
+
+    def nav(self, *, isin: str | None = None, name: str | None = None) -> Optional[float]:
+        if not name:
+            return None
+        import urllib.parse
+        raw = _get(self.SEARCH.format(q=urllib.parse.quote(name)), self.timeout)
+        if not raw:
+            return None
+        code = self._best_code(raw, name)
+        if code is None:
+            return None
+        latest = _get(self.LATEST.format(code=code), self.timeout)
+        if not latest:
+            return None
+        return self._parse_latest(latest)
+
+    @staticmethod
+    def _best_code(raw: bytes, query: str) -> Optional[int]:
+        try:
+            rows = json.loads(raw)
+        except Exception:
+            return None
+        q_tokens, q_plan, q_option = _tokens(query), _plan(query), _option(query)
+        best = None
+        for row in rows:
+            nm = row.get("schemeName", "")
+            if q_plan and _plan(nm) and _plan(nm) != q_plan:
+                continue
+            if q_option and _option(nm) and _option(nm) != q_option:
+                continue
+            shared = q_tokens & _tokens(nm)
+            if not shared:
+                continue
+            score = len(shared) / max(len(q_tokens), 1)
+            if score >= 0.6 and (best is None or score > best[0]):
+                best = (score, row.get("schemeCode"))
+        return best[1] if best else None
+
+    def _parse_latest(self, raw: bytes) -> Optional[float]:
+        try:
+            data = json.loads(raw)
+            row = data["data"][0]
+            self.as_of = row.get("date") or self.as_of
+            return float(row["nav"])
+        except Exception:
+            return None
+
+
 def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
                 _nav_provider: "AMFINavProvider | None" = None,
-                _equity_provider: "YahooEquityProvider | None" = None) -> dict:
+                _equity_provider: "YahooEquityProvider | None" = None,
+                _mfapi_provider: "MFApiProvider | None" = None) -> dict:
     """Attach live prices/NAVs in place. Returns a status report for the UI.
 
-    ``_nav_provider`` / ``_equity_provider`` let callers (and tests) inject
-    pre-loaded providers instead of hitting the network.
+    ``_nav_provider`` / ``_equity_provider`` / ``_mfapi_provider`` let callers
+    (and tests) inject pre-loaded providers instead of hitting the network.
     """
     status = {
         "equity_updated": 0, "equity_total": 0,
@@ -240,31 +306,36 @@ def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
         "as_of": None, "unmatched": [], "errors": [],
     }
 
+    status["equity_no_symbol"] = []
+    status["equity_no_quote"] = []
     if equities:
         eq = [h for h in pf.holdings if h.asset_type == AssetType.EQUITY]
         status["equity_total"] = len(eq)
         if eq:
             yp = _equity_provider or YahooEquityProvider()
 
-            def _one(h) -> bool:
+            def _one(h) -> str:
                 # a Symbol/Ticker column wins; otherwise resolve the name
                 tk = h.symbol or yp.resolve_symbol(h.name)
                 if not tk:
-                    return False
+                    return "no_symbol"      # can't even identify the stock
                 p = yp.price(tk)
                 if p is None:
-                    return False
+                    return "no_quote"       # known ticker, but no live data (SME/unlisted on source)
                 h.price = p
-                h.symbol = tk           # remember what we resolved to
-                return True
+                h.symbol = tk               # remember what we resolved to
+                return "ok"
 
-            # fetch in parallel with a bounded pool so 7 stocks take ~one
-            # round-trip, not seven, and a slow name never stalls the page
+            # fetch in parallel with a bounded pool so N stocks take ~one
+            # round-trip, not N, and a slow name never stalls the page
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=min(8, len(eq))) as ex:
                 results = list(ex.map(_one, eq))
-            status["equity_updated"] = sum(1 for r in results if r)
-            status["equity_unmatched"] = [h.name for h, r in zip(eq, results) if not r]
+            status["equity_updated"] = sum(1 for r in results if r == "ok")
+            status["equity_no_symbol"] = [h.name for h, r in zip(eq, results) if r == "no_symbol"]
+            status["equity_no_quote"] = [h.name for h, r in zip(eq, results) if r == "no_quote"]
+            # kept for back-compat: any stock without a live price
+            status["equity_unmatched"] = status["equity_no_symbol"] + status["equity_no_quote"]
 
     if funds:
         mf = [h for h in pf.holdings if h.asset_type == AssetType.MUTUAL_FUND]
@@ -282,5 +353,22 @@ def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
                     else:
                         status["unmatched"].append(h.name)
             else:
-                status["errors"].append("AMFI NAV feed unreachable")
+                # AMFI dump unreachable — fall back to the per-scheme mirror
+                status["errors"].append("AMFI dump unreachable; used mfapi.in fallback")
+                mp = _mfapi_provider or MFApiProvider()
+
+                def _one_nav(h):
+                    return h, mp.nav(isin=h.isin, name=h.name)
+
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=min(8, len(mf))) as ex:
+                    for h, nav in ex.map(_one_nav, mf):
+                        if nav is not None:
+                            h.price = nav
+                            status["nav_updated"] += 1
+                        else:
+                            status["unmatched"].append(h.name)
+                status["as_of"] = mp.as_of
+                if status["nav_updated"] == 0:
+                    status["errors"][-1] = "MF NAV feeds unreachable (AMFI + mfapi.in)"
     return status

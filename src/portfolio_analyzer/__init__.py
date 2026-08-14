@@ -6,7 +6,7 @@ try:  # the real installed version, so the UI can display what's running
     from importlib.metadata import version as _pkg_version
     __version__ = _pkg_version("portfolio-analyzer")
 except Exception:  # source checkout without install metadata
-    __version__ = "0.4.1"
+    __version__ = "0.5.0"
 
 _SAMPLE_DIR = Path(__file__).resolve().parent / "sample_data"
 

@@ -144,11 +144,14 @@ class Analysis:
         self.equity_hhi = hhi([c.pct for c in self.by_stock])
         self.equity_eff_positions = effective_positions([c.pct for c in self.by_stock])
 
-        # SIP allocation by category
-        sip_total = pf.total_monthly_sip
+        # SIP allocation by category. A monthly SIP can be declared either as a
+        # standalone SIP row or as a column on a fund holding (a fund you're both
+        # holding a corpus in *and* actively SIP-ing into) — count both.
+        sip_sources = list(pf.sips) + [h for h in pf.holdings if h.monthly_sip]
         cat: dict[str, float] = defaultdict(float)
-        for s in pf.sips:
+        for s in sip_sources:
             cat[s.category or "Uncategorised"] += (s.monthly_sip or 0)
+        sip_total = sum((s.monthly_sip or 0) for s in sip_sources)
         self.sip_by_category = _breakdown(cat, sip_total)
         self.sip_total_monthly = sip_total
 
