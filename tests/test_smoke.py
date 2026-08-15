@@ -735,6 +735,62 @@ def test_holdings_table_renders_live_vs_cost():
     assert "Stocks — live price vs your cost" in html
 
 
+def test_estimate_units_from_sip():
+    import datetime as dt
+    from portfolio_analyzer.prices import estimate_units_from_sip
+    # 3 months of flat NAV=100; ₹10,000/mo -> ~300 units
+    series = [((dt.date(2026, 1, 1) + dt.timedelta(days=i)).strftime("%d-%m-%Y"), 100.0)
+              for i in range(200)]
+    units = estimate_units_from_sip(series, 10000, dt.date(2026, 1, 1),
+                                    today=dt.date(2026, 3, 15))
+    assert units is not None and 290 <= units <= 310     # 3 buys of 100 units
+
+
+def test_estimate_units_needs_start():
+    from portfolio_analyzer.prices import estimate_units_from_sip
+    assert estimate_units_from_sip([("01-01-2026", 100.0)], 10000, None) is None
+
+
+def test_sparkline_svg_shape():
+    from portfolio_analyzer.prices import sparkline_svg
+    series = [("01-01-2026", 100.0), ("02-01-2026", 110.0), ("03-01-2026", 120.0)]
+    svg = sparkline_svg(series)
+    assert svg.startswith("<svg") and "polyline" in svg
+    assert sparkline_svg([]) == ""                        # not enough data
+
+
+def test_price_tries_bse_when_nse_missing():
+    from portfolio_analyzer.prices import YahooEquityProvider
+    yp = YahooEquityProvider()
+    calls = []
+    def fake_chart(tk):
+        calls.append(tk)
+        return 42.0 if tk.endswith(".BO") else None       # only BSE has it
+    yp._chart_price = fake_chart
+    # NSE fallback provider would hit network; stub it out
+    import portfolio_analyzer.prices as P
+    orig = P.NSEQuoteProvider
+    P.NSEQuoteProvider = lambda *a, **k: type("X", (), {"price": lambda self, s: None})()
+    try:
+        assert yp.price("AFCOM") == 42.0
+        assert calls == ["AFCOM.NS", "AFCOM.BO"]
+    finally:
+        P.NSEQuoteProvider = orig
+
+
+def test_fund_sip_start_captured():
+    import tempfile
+    import openpyxl
+    d = Path(tempfile.mkdtemp())
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Mutual Funds"
+    ws.append(["Fund", "SIP per month", "SIP Start"])
+    ws.append(["UTI Flexi Cap Fund - Direct Plan - Growth", 10000, "2024-01-15"])
+    fp = d / "mf.xlsx"; wb.save(fp)
+    h = load(fp).funds()[0]
+    assert h.monthly_sip == 10000 and h.sip_start is not None
+    assert h.sip_start.year == 2024
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

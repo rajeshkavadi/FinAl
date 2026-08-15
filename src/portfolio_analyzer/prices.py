@@ -125,15 +125,63 @@ class YahooEquityProvider:
         return nse or bo
 
     # -- ticker -> price ------------------------------------------------
-    def price(self, ticker: str) -> Optional[float]:
-        # bare symbol (from a user's Symbol column) -> assume NSE
-        tk = ticker if ("." in ticker) else f"{ticker}.NS"
+    def _chart_price(self, tk: str) -> Optional[float]:
         raw = _get(self.CHART.format(tk=tk), self.timeout)
         if not raw:
             return None
         try:
             meta = json.loads(raw)["chart"]["result"][0]["meta"]
             p = meta.get("regularMarketPrice")
+            return float(p) if p is not None else None
+        except Exception:
+            return None
+
+    def price(self, ticker: str) -> Optional[float]:
+        # a fully-qualified ticker (with exchange suffix) is used as-is;
+        # a bare symbol is tried on NSE then BSE (many SME names list on BSE)
+        if "." in ticker:
+            return self._chart_price(ticker)
+        base = ticker.strip().upper()
+        for suffix in (".NS", ".BO"):
+            p = self._chart_price(base + suffix)
+            if p is not None:
+                return p
+        # last resort: NSE's own quote API (best-effort; may be blocked)
+        return NSEQuoteProvider(self.timeout).price(base)
+
+
+class NSEQuoteProvider:
+    """Best-effort live quote from NSE India's public quote API.
+
+    NSE requires a browser-like session (cookies primed from the home page)
+    before the JSON endpoint responds. It often works from a home connection
+    and is a useful fallback for SME scrips Yahoo doesn't carry, but it can be
+    rate-limited/blocked — so every failure is silent and non-fatal.
+    """
+
+    HOME = "https://www.nseindia.com/"
+    QUOTE = "https://www.nseindia.com/api/quote-equity?symbol={sym}"
+
+    def __init__(self, timeout: int = 6) -> None:
+        self.timeout = timeout
+
+    def price(self, symbol: str) -> Optional[float]:
+        import http.cookiejar
+        import urllib.request
+        try:
+            jar = http.cookiejar.CookieJar()
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPCookieProcessor(jar))
+            headers = [("User-Agent", _UA["User-Agent"]),
+                       ("Accept", "*/*"),
+                       ("Referer", self.HOME)]
+            opener.addheaders = headers
+            opener.open(self.HOME, timeout=self.timeout).read()  # prime cookies
+            import urllib.parse
+            url = self.QUOTE.format(sym=urllib.parse.quote(symbol))
+            data = opener.open(url, timeout=self.timeout).read()
+            info = json.loads(data).get("priceInfo", {})
+            p = info.get("lastPrice")
             return float(p) if p is not None else None
         except Exception:
             return None
@@ -244,20 +292,50 @@ class MFApiProvider:
         self.timeout = timeout
         self.as_of: Optional[str] = None
 
-    def nav(self, *, isin: str | None = None, name: str | None = None) -> Optional[float]:
-        if not name:
-            return None
+    HISTORY = "https://api.mfapi.in/mf/{code}"
+
+    def resolve_code(self, name: str) -> Optional[int]:
         import urllib.parse
         raw = _get(self.SEARCH.format(q=urllib.parse.quote(name)), self.timeout)
         if not raw:
             return None
-        code = self._best_code(raw, name)
+        return self._best_code(raw, name)
+
+    def nav(self, *, isin: str | None = None, name: str | None = None) -> Optional[float]:
+        if not name:
+            return None
+        code = self.resolve_code(name)
         if code is None:
             return None
         latest = _get(self.LATEST.format(code=code), self.timeout)
         if not latest:
             return None
         return self._parse_latest(latest)
+
+    def series(self, name: str) -> list[tuple[str, float]]:
+        """Full NAV history as [(dd-mm-YYYY, nav), ...], oldest first. Empty on failure."""
+        code = self.resolve_code(name)
+        if code is None:
+            return []
+        raw = _get(self.HISTORY.format(code=code), max(self.timeout, 12))
+        if not raw:
+            return []
+        return self._parse_series(raw)
+
+    @staticmethod
+    def _parse_series(raw: bytes) -> list[tuple[str, float]]:
+        try:
+            data = json.loads(raw).get("data", [])
+        except Exception:
+            return []
+        out = []
+        for row in data:
+            try:
+                out.append((row["date"], float(row["nav"])))
+            except (KeyError, ValueError, TypeError):
+                continue
+        out.reverse()   # mfapi returns newest-first; we want oldest-first
+        return out
 
     @staticmethod
     def _best_code(raw: bytes, query: str) -> Optional[int]:
@@ -289,6 +367,83 @@ class MFApiProvider:
             return float(row["nav"])
         except Exception:
             return None
+
+
+def _parse_ddmmyyyy(s: str):
+    import datetime as _dt
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            return _dt.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def estimate_units_from_sip(series: list[tuple[str, float]], monthly: float,
+                            start, today=None) -> Optional[float]:
+    """Approximate accumulated units from a monthly SIP against NAV history.
+
+    Simulates buying ``monthly`` rupees of units on/after the SIP date each
+    month from ``start`` to today, at the first available NAV on/after that day.
+    This is an ESTIMATE — it assumes an unbroken monthly SIP and ignores lump
+    sums or stopped months — but it's far better than nothing when the user
+    hasn't entered actual units. Returns None if it can't be computed.
+    """
+    import datetime as _dt
+    if not series or not monthly or start is None:
+        return None
+    today = today or _dt.date.today()
+    # index navs by date for on/after lookup
+    dated = [(d, nav) for d, nav in ((_parse_ddmmyyyy(s), n) for s, n in series) if d]
+    if not dated:
+        return None
+    dated.sort()
+
+    def nav_on_or_after(day):
+        for d, nav in dated:
+            if d >= day:
+                return nav
+        return None
+
+    units = 0.0
+    y, m = start.year, start.month
+    day = min(start.day, 28)
+    bought = 0
+    while _dt.date(y, m, day) <= today and bought < 600:  # cap iterations
+        nav = nav_on_or_after(_dt.date(y, m, day))
+        if nav:
+            units += monthly / nav
+        bought += 1
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    return units if units > 0 else None
+
+
+def sparkline_svg(series: list[tuple[str, float]], *, months: int = 6,
+                  width: int = 120, height: int = 28) -> str:
+    """Tiny inline SVG line of the last ``months`` of NAV. '' if too little data."""
+    if not series or len(series) < 2:
+        return ""
+    tail = series[-(months * 22):]        # ~22 trading days/month
+    vals = [n for _, n in tail]
+    if len(vals) < 2:
+        return ""
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1.0
+    n = len(vals)
+    pts = []
+    for i, v in enumerate(vals):
+        x = i / (n - 1) * (width - 2) + 1
+        yv = height - 2 - (v - lo) / rng * (height - 4)
+        pts.append(f"{x:.1f},{yv:.1f}")
+    up = vals[-1] >= vals[0]
+    color = "#067647" if up else "#b42318"
+    return (f"<svg width='{width}' height='{height}' viewBox='0 0 {width} {height}' "
+            f"preserveAspectRatio='none' style='vertical-align:middle'>"
+            f"<polyline fill='none' stroke='{color}' stroke-width='1.5' points='{' '.join(pts)}'/>"
+            f"</svg>")
 
 
 def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
@@ -372,4 +527,32 @@ def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
                 status["as_of"] = mp.as_of
                 if status["nav_updated"] == 0:
                     status["errors"][-1] = "MF NAV feeds unreachable (AMFI + mfapi.in)"
+
+            # NAV history (mfapi.in) → 6-month sparkline + units-from-SIP estimate.
+            # Best-effort and parallel; silently skipped when the mirror is blocked.
+            status.setdefault("nav_spark", {})
+            status.setdefault("units_estimated", [])
+            hp = _mfapi_provider or MFApiProvider()
+
+            def _hist(h):
+                return h, hp.series(h.name)
+
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(8, len(mf))) as ex:
+                for h, series in ex.map(_hist, mf):
+                    if not series:
+                        continue
+                    spark = sparkline_svg(series)
+                    if spark:
+                        status["nav_spark"][h.name] = spark
+                    # estimate units when the user gave a monthly SIP + start date
+                    # but no units, so the fund can still be valued
+                    if h.quantity is None and h.monthly_sip and h.sip_start:
+                        est = estimate_units_from_sip(series, h.monthly_sip, h.sip_start)
+                        if est:
+                            h.quantity = est
+                            h.units_estimated = True
+                            status["units_estimated"].append(h.name)
+                        if h.price is None and series:
+                            h.price = series[-1][1]
     return status

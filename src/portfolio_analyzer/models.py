@@ -56,6 +56,7 @@ class Holding:
     scheme_code: Optional[str] = None  # AMFI code for live NAV lookups
     # SIP-specific
     monthly_sip: Optional[float] = None
+    units_estimated: bool = False   # units simulated from SIP history, not given
 
     def __post_init__(self) -> None:
         # Reconcile the invested / quantity / avg_cost triangle: given any two,

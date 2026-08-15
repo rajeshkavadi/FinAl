@@ -335,28 +335,55 @@ def _holdings_tables(pf: Portfolio, live_status: dict | None) -> str:
             "<th>Stock</th><th>Symbol</th><th class='num'>Qty</th><th class='num'>Avg cost</th>"
             "<th class='num'>Price</th><th>Src</th><th class='num'>Invested</th>"
             "<th class='num'>Cur. value</th><th class='num'>P/L</th><th class='num'>Return</th>"
-            f"</tr></thead><tbody>{rows}</tbody></table></div>")
+            f"</tr></thead><tbody>{rows}</tbody></table>"
+            "<p class='muted' style='font-size:12px;margin:8px 0 0'>Current value = "
+            "<b>Price × Qty</b> (computed here, not copied from your sheet). "
+            "<span class='src live'>live</span> = fetched now · "
+            "<span class='src entered'>your price</span> = the Current price you typed."
+            "</p></div>")
 
     funds = pf.funds()
     if funds:
+        spark = (live_status or {}).get("nav_spark", {})
+
+        def _units_cell(h):
+            if h.quantity is None:
+                return "—"
+            tag = " <span class='src entered'>est</span>" if h.units_estimated else ""
+            return f"{h.quantity:,.2f}{tag}"
+
+        def _nav_cell(h):
+            nav = _num_or_dash(h.price, "{:,.4f}")
+            sv = spark.get(h.name)
+            if sv:
+                return (f"{nav} <details class='spark'><summary>📈</summary>"
+                        f"<div class='sparkbox'>{sv}<div class='sparkcap'>6-month NAV trend</div>"
+                        f"</div></details>")
+            return nav
+
         rows = "".join(
             f"<tr><td>{html.escape(h.name)}</td>"
             f"<td>{html.escape(h.category or '—')}</td>"
-            f"<td class='num'>{_num_or_dash(h.quantity)}</td>"
-            f"<td class='num'>{_num_or_dash(h.price, '{:,.4f}')}</td>"
+            f"<td class='num'>{_units_cell(h)}</td>"
+            f"<td class='num'>{_nav_cell(h)}</td>"
             f"<td class='num'>{_rupees(h.invested) if h.invested else '—'}</td>"
             f"<td class='num'>{_cell_val(h)}</td>"
             f"<td class='num'>{_cell_pl(h)}</td></tr>"
             for h in funds)
+        est_note = ""
+        if (live_status or {}).get("units_estimated"):
+            est_note = ("<b>est</b> = units estimated by simulating your monthly SIP "
+                        "against NAV history (needs a <b>SIP Start</b> date; approximate). ")
         out.append(
             "<h2>Mutual funds — NAV &amp; value</h2><div class='card' style='overflow-x:auto'>"
             "<table class='ttable'><thead><tr>"
             "<th>Fund</th><th>Category</th><th class='num'>Units</th><th class='num'>NAV</th>"
             "<th class='num'>Invested</th><th class='num'>Cur. value</th><th class='num'>P/L</th>"
             "</tr></thead><tbody>{}</tbody></table>"
-            "<p class='muted' style='font-size:12px;margin:8px 0 0'>Funds without "
-            "<b>Units</b> show a live NAV but no value — add Units (from your CAS) to value them."
-            "</p></div>".format(rows))
+            "<p class='muted' style='font-size:12px;margin:8px 0 0'>{}Tap 📈 for the "
+            "6-month NAV trend. Funds with no <b>Units</b> and no SIP start show NAV only — "
+            "add Units (from your CAS) or a SIP Start date to value them.</p></div>"
+            .format(rows, est_note))
     return "".join(out)
 
 
@@ -373,9 +400,8 @@ def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
     kpis = [
         ("Direct equity", _rupees(a.equity_total),
          "Total current value of your direct stocks"),
-        ("Diversification", f"{a.equity_eff_positions:.1f} of {len(a.by_stock)}",
-         "Effective number of independent stock bets (lower than your stock count "
-         "means a few holdings dominate)"),
+        ("Holdings", f"{len(pf.equities())} stocks · {len(pf.funds())} funds",
+         "How many direct stocks and mutual funds you hold"),
         ("High-risk share", f"{a.high_risk_pct*100:.1f}%",
          "Share of equity in holdings you flagged High / Very High risk"),
         ("Monthly SIP", _rupees(a.sip_total_monthly),
@@ -447,6 +473,11 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 .src.entered{{background:#fffaeb;color:#b54708}}
 .src.cost{{background:#f2f4f7;color:#667085}}
 .dlbtn{{display:inline-block;background:#067647;color:#fff;text-decoration:none;font-weight:600;font-size:13px;padding:9px 16px;border-radius:8px;margin:14px 0 0}}
+.spark{{display:inline-block;margin-left:4px}}
+.spark summary{{cursor:pointer;list-style:none}}
+.spark summary::-webkit-details-marker{{display:none}}
+.sparkbox{{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:4px;box-shadow:0 6px 20px rgba(16,24,40,.12);z-index:5}}
+.sparkcap{{font-size:10px;color:var(--muted);margin-top:2px;text-align:center}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
 <h1>{html.escape(title)} <span class="ver">v{_ver}</span></h1>

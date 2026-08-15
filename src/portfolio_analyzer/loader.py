@@ -290,6 +290,7 @@ def _parse_funds(rows: list[list]) -> list[Holding]:
     i_units = _find(hdr, "units", "quantity", "qty")
     i_nav = _find(hdr, "nav")            # live NAV is fetched; only take an explicit NAV col
     i_sip = _find(hdr, "sip per month", "monthly sip", "sip amount", "monthly", "sip")
+    i_start = _find(hdr, "sip start", "start date", "sip since", "since", "start")
     i_isin = _find(hdr, "isin")
     i_risk = _find(hdr, "risk")
     i_notes = _find(hdr, "note")
@@ -310,6 +311,7 @@ def _parse_funds(rows: list[list]) -> list[Holding]:
             risk_flag=str(cells[i_risk]).strip() if i_risk is not None and cells[i_risk] else None,
             notes=str(cells[i_notes]).strip() if i_notes is not None and cells[i_notes] else "",
             monthly_sip=monthly,
+            sip_start=_date(cells[i_start]) if i_start is not None else None,
         ))
     return out
 
