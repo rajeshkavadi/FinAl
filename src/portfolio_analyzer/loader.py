@@ -251,10 +251,16 @@ def _parse_equity(rows: list[list]) -> list[Holding]:
         qty = _num(cells[i_qty]) if i_qty is not None else None
         avg = _num(cells[i_avg]) if i_avg is not None else None
         inv = _num(cells[i_inv]) if i_inv is not None else None
-        # quantity x average cost is the reliable cost basis (in rupees); fall
-        # back to an explicit Invested column only when qty/avg aren't both given
-        if qty and avg:
-            invested = qty * avg
+        # Prefer the user's own "Invested amount" when they gave one — it's the
+        # authoritative cost (it can differ from Shares x Avg Cost after partial
+        # buys/sells). Only fall back to Shares x Avg Cost when Invested is
+        # missing, or is wildly off-scale vs Shares x Avg Cost (e.g. a column
+        # typed in lakhs), which would otherwise poison the totals.
+        base = qty * avg if (qty and avg) else None
+        if inv and base and (base / 3) <= inv <= (base * 3):
+            invested = inv
+        elif base:
+            invested = base
         else:
             invested = inv or 0.0
         sym = str(cells[i_sym]).strip() if i_sym is not None and cells[i_sym] else None

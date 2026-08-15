@@ -275,23 +275,115 @@ def _live_banner(pf: Portfolio, status: dict | None) -> str:
     return f"<div class='lbanner'>📈 {' · '.join(bits)}{note}</div>"
 
 
+def _download_button(name: str | None, b64: str | None) -> str:
+    if not b64 or not name:
+        return ""
+    mime = ("data:application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet;base64,")
+    return (f"<a class='dlbtn' download='{html.escape(name)}' href='{mime}{b64}'>"
+            f"⬇ Download your workbook with live prices filled in</a>")
+
+
+def _holdings_tables(pf: Portfolio, live_status: dict | None) -> str:
+    """Per-holding tables: live/used price vs your cost, value and P/L."""
+    from .models import AssetType
+    live_names = set((live_status or {}).get("equity_live", []))
+
+    def _px_source(h) -> str:
+        if h.price is None:
+            return "<span class='src cost'>no price</span>"
+        if h.name in live_names:
+            return "<span class='src live'>live</span>"
+        return "<span class='src entered'>your price</span>"
+
+    def _cell_val(h):
+        return _rupees(h.current_value) if h.valued_on_market else "—"
+
+    def _cell_pl(h):
+        pl = h.unrealised_pl
+        if pl is None:
+            return "—"
+        return f"<span style='color:{_pl_color(pl)}'>{_signed(pl)}</span>"
+
+    def _cell_ret(h):
+        r = h.return_pct
+        if r is None:
+            return "—"
+        return f"<span style='color:{_pl_color(r)}'>{r*100:+.1f}%</span>"
+
+    def _num_or_dash(x, fmt="{:,.2f}"):
+        return fmt.format(x) if x is not None else "—"
+
+    out = []
+    eq = pf.equities()
+    if eq:
+        rows = "".join(
+            f"<tr><td>{html.escape(h.name)}</td>"
+            f"<td>{html.escape(h.symbol or '—')}</td>"
+            f"<td class='num'>{_num_or_dash(h.quantity, '{:,.0f}')}</td>"
+            f"<td class='num'>{_num_or_dash(h.avg_cost)}</td>"
+            f"<td class='num'>{_num_or_dash(h.price)}</td>"
+            f"<td>{_px_source(h)}</td>"
+            f"<td class='num'>{_rupees(h.invested)}</td>"
+            f"<td class='num'>{_cell_val(h)}</td>"
+            f"<td class='num'>{_cell_pl(h)}</td>"
+            f"<td class='num'>{_cell_ret(h)}</td></tr>"
+            for h in sorted(eq, key=lambda x: x.current_value, reverse=True))
+        out.append(
+            "<h2>Stocks — live price vs your cost</h2><div class='card' style='overflow-x:auto'>"
+            "<table class='ttable'><thead><tr>"
+            "<th>Stock</th><th>Symbol</th><th class='num'>Qty</th><th class='num'>Avg cost</th>"
+            "<th class='num'>Price</th><th>Src</th><th class='num'>Invested</th>"
+            "<th class='num'>Cur. value</th><th class='num'>P/L</th><th class='num'>Return</th>"
+            f"</tr></thead><tbody>{rows}</tbody></table></div>")
+
+    funds = pf.funds()
+    if funds:
+        rows = "".join(
+            f"<tr><td>{html.escape(h.name)}</td>"
+            f"<td>{html.escape(h.category or '—')}</td>"
+            f"<td class='num'>{_num_or_dash(h.quantity)}</td>"
+            f"<td class='num'>{_num_or_dash(h.price, '{:,.4f}')}</td>"
+            f"<td class='num'>{_rupees(h.invested) if h.invested else '—'}</td>"
+            f"<td class='num'>{_cell_val(h)}</td>"
+            f"<td class='num'>{_cell_pl(h)}</td></tr>"
+            for h in funds)
+        out.append(
+            "<h2>Mutual funds — NAV &amp; value</h2><div class='card' style='overflow-x:auto'>"
+            "<table class='ttable'><thead><tr>"
+            "<th>Fund</th><th>Category</th><th class='num'>Units</th><th class='num'>NAV</th>"
+            "<th class='num'>Invested</th><th class='num'>Cur. value</th><th class='num'>P/L</th>"
+            "</tr></thead><tbody>{}</tbody></table>"
+            "<p class='muted' style='font-size:12px;margin:8px 0 0'>Funds without "
+            "<b>Units</b> show a live NAV but no value — add Units (from your CAS) to value them."
+            "</p></div>".format(rows))
+    return "".join(out)
+
+
 def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
                     *, title: str = "Portfolio Analysis",
-                    live_status: dict | None = None) -> str:
+                    live_status: dict | None = None,
+                    download_name: str | None = None,
+                    download_b64: str | None = None) -> str:
     now = _dt.datetime.now().strftime("%d %b %Y, %H:%M")
     basis = ("live/market value" if any(h.valued_on_market for h in pf.holdings)
              else "invested (cost) basis")
     from . import __version__ as _ver
 
     kpis = [
-        ("Direct equity", _rupees(a.equity_total)),
-        ("Effective positions", f"{a.equity_eff_positions:.1f}"),
-        ("High-risk share", f"{a.high_risk_pct*100:.1f}%"),
-        ("Monthly SIP", _rupees(a.sip_total_monthly)),
+        ("Direct equity", _rupees(a.equity_total),
+         "Total current value of your direct stocks"),
+        ("Diversification", f"{a.equity_eff_positions:.1f} of {len(a.by_stock)}",
+         "Effective number of independent stock bets (lower than your stock count "
+         "means a few holdings dominate)"),
+        ("High-risk share", f"{a.high_risk_pct*100:.1f}%",
+         "Share of equity in holdings you flagged High / Very High risk"),
+        ("Monthly SIP", _rupees(a.sip_total_monthly),
+         "Total you invest via SIP each month"),
     ]
     kpi_html = "".join(
-        f'<div class="kpi"><div class="kpiv">{v}</div><div class="kpil">{k}</div></div>'
-        for k, v in kpis)
+        f'<div class="kpi" title="{html.escape(tip)}"><div class="kpiv">{v}</div>'
+        f'<div class="kpil">{k}</div></div>' for k, v, tip in kpis)
 
     high_flags = sum(1 for s in sugs if s.severity == "high")
     warn_flags = sum(1 for s in sugs if s.severity == "warn")
@@ -350,6 +442,11 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 .ver{{font-size:12px;font-weight:600;color:#fff;background:#3b82f6;border-radius:20px;padding:2px 9px;vertical-align:middle}}
 .lbanner{{background:#eff8ff;border:1px solid #b2ddff;color:#175cd3;border-radius:10px;padding:10px 14px;margin:14px 0 4px;font-size:13px}}
 .lbnote{{color:#344054;font-size:12px;margin-top:5px}}
+.src{{font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em}}
+.src.live{{background:#ecfdf3;color:#067647}}
+.src.entered{{background:#fffaeb;color:#b54708}}
+.src.cost{{background:#f2f4f7;color:#667085}}
+.dlbtn{{display:inline-block;background:#067647;color:#fff;text-decoration:none;font-weight:600;font-size:13px;padding:9px 16px;border-radius:8px;margin:14px 0 0}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
 <h1>{html.escape(title)} <span class="ver">v{_ver}</span></h1>
@@ -361,6 +458,8 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 
 <h2>Profit &amp; loss</h2>
 {_pl_section(a)}
+{_download_button(download_name, download_b64)}
+{_holdings_tables(pf, live_status)}
 
 <h2>Restructuring suggestions</h2>
 {_suggestions_html(sugs)}

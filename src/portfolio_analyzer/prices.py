@@ -332,6 +332,7 @@ def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
             with ThreadPoolExecutor(max_workers=min(8, len(eq))) as ex:
                 results = list(ex.map(_one, eq))
             status["equity_updated"] = sum(1 for r in results if r == "ok")
+            status["equity_live"] = [h.name for h, r in zip(eq, results) if r == "ok"]
             status["equity_no_symbol"] = [h.name for h, r in zip(eq, results) if r == "no_symbol"]
             status["equity_no_quote"] = [h.name for h, r in zip(eq, results) if r == "no_quote"]
             # kept for back-compat: any stock without a live price

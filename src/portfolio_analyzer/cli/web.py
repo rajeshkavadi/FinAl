@@ -96,7 +96,10 @@ def assemble_portfolio(parts: dict[str, dict], tmp: Path):
         return name in parts and parts[name].get("content")
 
     if has("portfolio"):
-        loaded = load(_save(tmp, "portfolio", parts["portfolio"]))
+        _ppath = _save(tmp, "portfolio", parts["portfolio"])
+        pf.meta["portfolio_path"] = str(_ppath)
+        pf.meta["portfolio_name"] = parts["portfolio"].get("filename") or "portfolio.xlsx"
+        loaded = load(_ppath)
         pf.holdings.extend(loaded.holdings)
         pf.sips.extend(loaded.sips)
         pf.meta.setdefault("replacements", []).extend(
@@ -161,8 +164,25 @@ def analyze_parts(parts: dict[str, dict]) -> str:
 
         a = Analysis(pf, compositions=comps)
         sugs = run_rules(a)
+
+        # offer the user's workbook back with live prices filled into it
+        dl_name = dl_b64 = None
+        ppath = pf.meta.get("portfolio_path")
+        if want_live and ppath and str(ppath).lower().endswith((".xlsx", ".xlsm")):
+            try:
+                import base64
+                from portfolio_analyzer.writeback import fill_live_prices
+                data = fill_live_prices(ppath, pf)
+                if data:
+                    dl_b64 = base64.b64encode(data).decode("ascii")
+                    orig = pf.meta.get("portfolio_name", "portfolio.xlsx")
+                    dl_name = orig.rsplit(".", 1)[0] + "-live.xlsx"
+            except Exception:
+                pass  # a write-back failure must never break the dashboard
+
         return build_dashboard(pf, a, sugs, title="Portfolio Analysis",
-                               live_status=live_status)
+                               live_status=live_status,
+                               download_name=dl_name, download_b64=dl_b64)
 
 
 def _cg_page(res, tax) -> str:

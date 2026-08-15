@@ -672,6 +672,69 @@ def test_funds_sheet_captures_monthly_sip():
     assert all(h.invested == 0 for h in pf.funds())
 
 
+def test_equity_prefers_user_invested_over_qty_times_avg():
+    import tempfile
+    import openpyxl
+    d = Path(tempfile.mkdtemp())
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Stocks"
+    ws.append(["Stock", "Symbol", "Shares", "Avg Cost", "Invested amount"])
+    ws.append(["Arman Financial Services", "ARMANFIN", 485, 1645, 1000000])  # 485*1645=797,825
+    fp = d / "s.xlsx"; wb.save(fp)
+    h = load(fp).equities()[0]
+    # the user's stated invested (in a sane range) wins over Shares x Avg Cost
+    assert h.invested == 1000000
+
+
+def test_equity_ignores_offscale_invested():
+    import tempfile
+    import openpyxl
+    d = Path(tempfile.mkdtemp())
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Stocks"
+    ws.append(["Stock", "Shares", "Cost Price", "Invested"])
+    ws.append(["Armaan", 485, 1645, 10])          # '10' is lakhs-notation nonsense
+    fp = d / "s.xlsx"; wb.save(fp)
+    h = load(fp).equities()[0]
+    assert round(h.invested) == 485 * 1645         # off-scale invested ignored
+
+
+def test_writeback_fills_current_price_column():
+    import tempfile
+    import openpyxl
+    from portfolio_analyzer.writeback import fill_live_prices
+    from portfolio_analyzer.models import AssetType as AT
+    d = Path(tempfile.mkdtemp())
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Stocks"
+    ws.append(["Stock", "Symbol", "Shares", "Avg Cost", "Current price", "Current value"])
+    ws.append(["Arman Financial Services", "ARMANFIN", 485, 1645, None, None])
+    fp = d / "s.xlsx"; wb.save(fp)
+    pf = load(fp)
+    pf.holdings[0].price = 1969.4                   # pretend live fetch set this
+    data = fill_live_prices(fp, pf)
+    assert data is not None
+    wb2 = openpyxl.load_workbook(io_bytes(data))
+    ws2 = wb2["Stocks"]
+    assert ws2.cell(row=2, column=5).value == 1969.4                 # Current price filled
+    assert round(ws2.cell(row=2, column=6).value) == round(485 * 1969.4)  # Current value filled
+
+
+def io_bytes(b):
+    import io
+    return io.BytesIO(b)
+
+
+def test_holdings_table_renders_live_vs_cost():
+    from portfolio_analyzer.models import Holding, Portfolio
+    from portfolio_analyzer.report import _holdings_tables
+    pf = Portfolio()
+    pf.holdings.append(Holding(name="Arman", asset_type=AssetType.EQUITY,
+                               invested=800000, quantity=485, avg_cost=1645,
+                               price=1969.4, symbol="ARMANFIN"))
+    html = _holdings_tables(pf, {"equity_live": ["Arman"]})
+    assert "Arman" in html and "ARMANFIN" in html
+    assert "live" in html                          # source chip
+    assert "Stocks — live price vs your cost" in html
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):
