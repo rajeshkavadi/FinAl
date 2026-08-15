@@ -270,6 +270,51 @@ def large_drawdown_review(a: Analysis, t: dict) -> list[Suggestion]:
     return out
 
 
+@rule
+def replacement_candidate(a: Analysis, t: dict) -> list[Suggestion]:
+    """Share-weighted 'replace with an alternative equity' suggestions.
+
+    Ranked by each holding's share of your direct equity: a position that is a
+    meaningful slice of the book AND is either deep underwater, high-risk, or
+    over-concentrated is flagged as a candidate to swap for a better-fit equity.
+    We describe the *kind* of replacement (a category-leading large-cap or a
+    broad-market index fund/ETF) rather than naming a specific stock — the pick
+    is the user's / their adviser's call.
+    """
+    by_name = {h.name: h for h in a.pf.equities()}
+    out = []
+    for c in a.by_stock:                         # sorted by value (share) already
+        h = by_name.get(c.label)
+        if h is None:
+            continue
+        w = c.pct                                # share of direct equity
+        r = h.return_pct
+        high_risk = risk_rank(h.risk_flag) >= risk_rank("High")
+        reasons = []
+        if r is not None and r <= -0.20:
+            reasons.append(f"down {r*100:.0f}% vs your cost")
+        if high_risk and w >= 0.05:
+            reasons.append(f"{h.risk_flag} risk at {_pct(w)} of equity")
+        if w >= t["single_stock_high"]:
+            reasons.append(f"over-concentrated at {_pct(w)}")
+        if not reasons:
+            continue
+        sev = ("high" if (r is not None and r <= -0.35) or w >= 0.25
+               or (high_risk and w >= 0.10) else "warn")
+        out.append(Suggestion(
+            rule="replacement_candidate",
+            severity=sev,
+            title=f"Replace / reduce {c.label} — {_pct(w)} of your equity",
+            detail=(f"{c.label} is ₹{c.value:,.0f} ({_pct(w)} of direct equity); "
+                    + "; ".join(reasons) + "."),
+            impacted=[c.label],
+            action=(f"Consider swapping {c.label} for a better-fit equity in the same "
+                    "space — a category-leading large-cap or a broad-market index "
+                    f"fund/ETF — redeploying about ₹{c.value:,.0f}."),
+        ))
+    return out
+
+
 def run_rules(a: Analysis, thresholds: dict | None = None) -> list[Suggestion]:
     t = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     out: list[Suggestion] = []

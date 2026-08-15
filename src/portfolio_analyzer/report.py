@@ -387,9 +387,11 @@ def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
         f'<div class="kpi" title="{html.escape(tip)}"><div class="kpiv">{v}</div>'
         f'<div class="kpil">{k}</div></div>' for k, v, tip in kpis)
 
-    high_flags = sum(1 for s in sugs if s.severity == "high")
-    warn_flags = sum(1 for s in sugs if s.severity == "warn")
-    stock_sugs, fund_sugs = _split_suggestions(sugs)
+    _, fund_sugs = _split_suggestions(sugs)
+    repl_sugs = [s for s in sugs if s.rule == "replacement_candidate"]
+    shown = repl_sugs + fund_sugs
+    high_flags = sum(1 for s in shown if s.severity == "high")
+    warn_flags = sum(1 for s in shown if s.severity == "warn")
 
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -472,10 +474,6 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 <span class="pill" style="background:#fffaeb;color:#b54708">{warn_flags} review</span></div>
 <div class="kpis">{kpi_html}</div>
 
-<h2>Profit &amp; loss</h2>
-{_pl_section(a)}
-{_download_button(download_name, download_b64)}
-
 <div class="tabs">
   <input type="radio" name="tab" id="tab-stocks" class="tabradio" checked>
   <input type="radio" name="tab" id="tab-funds" class="tabradio">
@@ -485,18 +483,24 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
   </div>
 
   <div class="tabpane" id="pane-stocks">
+    <h2>Profit &amp; loss</h2>
+    {_pl_section(a)}
+    {_download_button(download_name, download_b64)}
     <h2>Holdings — live price vs your cost</h2>
     {_stocks_table(pf, live_status)}
-    <h2>Suggestions &amp; considerations</h2>
-    {_suggestions_html(stock_sugs)}
-    <h2>Tax impact of exiting flagged positions</h2>
-    {_tax_section(a, sugs)}
+    <h2>Replace with a better-fit equity</h2>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">Ranked by each holding's
+    share of your equity. These flag positions worth swapping — the specific
+    replacement is your call (see note below).</p>
+    {_suggestions_html(repl_sugs)}
     <h2>Single-stock concentration</h2>
     <div class="card">{_bars(a.by_stock, a.equity_total, "#3b82f6")}</div>
     <h2>Thematic exposure</h2>
     <div class="card">{_bars(a.by_theme, a.equity_total, "#8b5cf6")}</div>
     <h2>Risk-flag exposure</h2>
     <div class="card">{_bars(a.by_risk, a.equity_total, "#ef4444")}</div>
+    <h2>Tax impact of exiting flagged positions</h2>
+    {_tax_section(a, sugs)}
   </div>
 
   <div class="tabpane" id="pane-funds">
