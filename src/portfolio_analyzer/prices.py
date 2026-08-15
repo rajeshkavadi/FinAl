@@ -146,8 +146,12 @@ class YahooEquityProvider:
             p = self._chart_price(base + suffix)
             if p is not None:
                 return p
-        # last resort: NSE's own quote API (best-effort; may be blocked)
-        return NSEQuoteProvider(self.timeout).price(base)
+        # last resorts for SME scrips Yahoo doesn't carry: NSE's quote API,
+        # then Screener.in (HTML). Both best-effort, silent on failure.
+        p = NSEQuoteProvider(self.timeout).price(base)
+        if p is not None:
+            return p
+        return ScreenerProvider(self.timeout).price(base)
 
 
 class NSEQuoteProvider:
@@ -184,6 +188,42 @@ class NSEQuoteProvider:
             p = info.get("lastPrice")
             return float(p) if p is not None else None
         except Exception:
+            return None
+
+
+class ScreenerProvider:
+    """Best-effort current price by scraping screener.in's company page.
+
+    Screener is symbol-addressable (/company/FLYSBS/) and lists the current
+    price in the page HTML, so it's a handy last resort for NSE-SME scrips that
+    Yahoo/NSE don't return. HTML scraping is inherently fragile (layout can
+    change) and subject to the site's terms, so it's the final fallback only and
+    fails silently.
+    """
+
+    URL = "https://www.screener.in/company/{sym}/"
+    # "Current Price" label followed (soon after) by <span class="number">441</span>
+    _RE = re.compile(
+        r"Current\s*Price.{0,200}?<span[^>]*class=\"number\"[^>]*>\s*"
+        r"([\d,]+(?:\.\d+)?)", re.I | re.S)
+
+    def __init__(self, timeout: int = 8) -> None:
+        self.timeout = timeout
+
+    def price(self, symbol: str) -> Optional[float]:
+        raw = _get(self.URL.format(sym=symbol.strip().upper()), self.timeout)
+        if not raw:
+            return None
+        return self.parse_price(raw.decode("utf-8", "ignore"))
+
+    @classmethod
+    def parse_price(cls, html_text: str) -> Optional[float]:
+        m = cls._RE.search(html_text)
+        if not m:
+            return None
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
             return None
 
 

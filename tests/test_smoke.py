@@ -791,6 +791,42 @@ def test_fund_sip_start_captured():
     assert h.sip_start.year == 2024
 
 
+def test_screener_parses_current_price():
+    from portfolio_analyzer.prices import ScreenerProvider
+    html_text = '''
+    <ul id="top-ratios">
+      <li class="flex flex-space-between">
+        <span class="name">Current Price</span>
+        <span class="nowrap value">₹ <span class="number">441</span></span>
+      </li>
+      <li><span class="name">Market Cap</span>
+        <span class="value">₹ <span class="number">1,234</span> Cr.</span></li>
+    </ul>'''
+    assert ScreenerProvider.parse_price(html_text) == 441.0
+
+
+def test_screener_parses_price_with_decimals_and_commas():
+    from portfolio_analyzer.prices import ScreenerProvider
+    html_text = ('<span class="name">Current Price</span><span class="value">'
+                 '₹<span class="number">1,502.05</span></span>')
+    assert ScreenerProvider.parse_price(html_text) == 1502.05
+    assert ScreenerProvider.parse_price("<html>no price here</html>") is None
+
+
+def test_price_falls_through_to_screener():
+    from portfolio_analyzer.prices import YahooEquityProvider
+    import portfolio_analyzer.prices as P
+    yp = YahooEquityProvider()
+    yp._chart_price = lambda tk: None                       # Yahoo has nothing
+    orig_nse, orig_scr = P.NSEQuoteProvider, P.ScreenerProvider
+    P.NSEQuoteProvider = lambda *a, **k: type("N", (), {"price": lambda self, s: None})()
+    P.ScreenerProvider = lambda *a, **k: type("S", (), {"price": lambda self, s: 441.0})()
+    try:
+        assert yp.price("FLYSBS") == 441.0                  # Screener wins as last resort
+    finally:
+        P.NSEQuoteProvider, P.ScreenerProvider = orig_nse, orig_scr
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):
