@@ -26,6 +26,7 @@ DEFAULT_THRESHOLDS = {
     "high_risk_book": 0.40,        # High+VeryHigh names above 40% of equity
     "micro_position": 0.015,       # positions under 1.5% add tracking noise
     "min_effective_positions": 8,  # want at least ~8 effective equal bets
+    "drawdown_review": 0.25,       # a position down >25% from cost warrants a review
 }
 
 
@@ -244,6 +245,29 @@ def lookthrough_direct_fund_overlap(a: Analysis, t: dict) -> list[Suggestion]:
         impacted=names,
         action="Treat direct + fund exposure as one number per name before topping up.",
     )]
+
+
+@rule
+def large_drawdown_review(a: Analysis, t: dict) -> list[Suggestion]:
+    """Flag holdings deep underwater vs cost — a prompt to revisit the thesis
+    (a 'consideration', not just a restructuring cut)."""
+    out = []
+    for h in a.pf.equities():
+        r = h.return_pct
+        if r is None or r > -t["drawdown_review"]:
+            continue
+        out.append(Suggestion(
+            rule="large_drawdown_review",
+            severity="high" if r <= -0.40 else "warn",
+            title=f"{h.name} is down {r*100:.0f}% from your cost",
+            detail=(f"Now ₹{h.current_value:,.0f} vs invested ₹{h.invested:,.0f} "
+                    f"({h.unrealised_pl:+,.0f}). A drawdown this deep is worth a "
+                    "deliberate call rather than holding by inertia."),
+            impacted=[h.name],
+            action=("Revisit the original thesis: add with conviction, hold, or exit "
+                    "and redeploy — but choose, don't drift."),
+        ))
+    return out
 
 
 def run_rules(a: Analysis, thresholds: dict | None = None) -> list[Suggestion]:

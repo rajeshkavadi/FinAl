@@ -224,57 +224,6 @@ def _suggestions_html(sugs: list[Suggestion]) -> str:
     return "".join(cards)
 
 
-def _live_banner(pf: Portfolio, status: dict | None) -> str:
-    """A small strip summarising the live-NAV/price enrichment, if it ran."""
-    if not status:
-        return ""
-    from .models import AssetType
-    bits = []
-    if status.get("nav_total"):
-        asof = f" (as of {status['as_of']})" if status.get("as_of") else ""
-        bits.append(f"Live NAV matched for <b>{status['nav_updated']}/"
-                    f"{status['nav_total']}</b> funds{asof}")
-    if status.get("equity_total"):
-        bits.append(f"live price for <b>{status['equity_updated']}/"
-                    f"{status['equity_total']}</b> stocks")
-    if not bits:
-        return ""
-    # funds we priced but can't value because units are unknown
-    priced_no_units = [h for h in pf.holdings
-                       if h.asset_type == AssetType.MUTUAL_FUND
-                       and h.price is not None and h.quantity is None]
-    note = ""
-    if priced_no_units:
-        note = ("<div class='lbnote'>To turn NAV into current value &amp; gains, add a "
-                "<b>Units</b> column to your fund rows (or upload your CAS, which carries "
-                "units).</div>")
-    unmatched = status.get("unmatched") or []
-    if unmatched:
-        show = ", ".join(html.escape(u) for u in unmatched[:4])
-        more = f" +{len(unmatched) - 4} more" if len(unmatched) > 4 else ""
-        note += (f"<div class='lbnote'>No AMFI match for: {show}{more}. "
-                 "Add the scheme's <b>ISIN</b> for an exact match.</div>")
-    no_symbol = status.get("equity_no_symbol") or []
-    if no_symbol:
-        show = ", ".join(html.escape(u) for u in no_symbol[:4])
-        more = f" +{len(no_symbol) - 4} more" if len(no_symbol) > 4 else ""
-        note += (f"<div class='lbnote'>No ticker to price: {show}{more}. "
-                 "Add a <b>Symbol</b> column with the NSE ticker (e.g. "
-                 "<code>ARMANFIN</code>).</div>")
-    no_quote = status.get("equity_no_quote") or []
-    if no_quote:
-        show = ", ".join(html.escape(u) for u in no_quote[:4])
-        more = f" +{len(no_quote) - 4} more" if len(no_quote) > 4 else ""
-        note += (f"<div class='lbnote'>No live quote available for: {show}{more} "
-                 "(likely NSE SME / not carried by the free price source) — using the "
-                 "<b>Current price</b> from your sheet for these.</div>")
-    if status.get("errors"):
-        note += ("<div class='lbnote'>Live data unavailable ("
-                 + html.escape("; ".join(status["errors"]))
-                 + ") — showing imported/cost values.</div>")
-    return f"<div class='lbanner'>📈 {' · '.join(bits)}{note}</div>"
-
-
 def _download_button(name: str | None, b64: str | None) -> str:
     if not b64 or not name:
         return ""
@@ -284,108 +233,134 @@ def _download_button(name: str | None, b64: str | None) -> str:
             f"⬇ Download your workbook with live prices filled in</a>")
 
 
-def _holdings_tables(pf: Portfolio, live_status: dict | None) -> str:
-    """Per-holding tables: live/used price vs your cost, value and P/L."""
-    from .models import AssetType
-    live_names = set((live_status or {}).get("equity_live", []))
+def _px_source(h, live_names) -> str:
+    if h.price is None:
+        return "<span class='src cost'>no price</span>"
+    if h.name in live_names:
+        src = f" ({html.escape(h.price_source)})" if h.price_source else ""
+        return f"<span class='src live'>live{src}</span>"
+    return "<span class='src entered'>your price</span>"
 
-    def _px_source(h) -> str:
-        if h.price is None:
-            return "<span class='src cost'>no price</span>"
-        if h.name in live_names:
-            src = f" ({html.escape(h.price_source)})" if h.price_source else ""
-            return f"<span class='src live'>live{src}</span>"
-        return "<span class='src entered'>your price</span>"
 
-    def _cell_val(h):
-        return _rupees(h.current_value) if h.valued_on_market else "—"
+def _cell_val(h):
+    return _rupees(h.current_value) if h.valued_on_market else "—"
 
-    def _cell_pl(h):
-        pl = h.unrealised_pl
-        if pl is None:
-            return "—"
-        return f"<span style='color:{_pl_color(pl)}'>{_signed(pl)}</span>"
 
-    def _cell_ret(h):
-        r = h.return_pct
-        if r is None:
-            return "—"
-        return f"<span style='color:{_pl_color(r)}'>{r*100:+.1f}%</span>"
+def _cell_pl(h):
+    pl = h.unrealised_pl
+    if pl is None:
+        return "—"
+    return f"<span style='color:{_pl_color(pl)}'>{_signed(pl)}</span>"
 
-    def _num_or_dash(x, fmt="{:,.2f}"):
-        return fmt.format(x) if x is not None else "—"
 
-    out = []
+def _cell_ret(h):
+    r = h.return_pct
+    if r is None:
+        return "—"
+    return f"<span style='color:{_pl_color(r)}'>{r*100:+.1f}%</span>"
+
+
+def _num_or_dash(x, fmt="{:,.2f}"):
+    return fmt.format(x) if x is not None else "—"
+
+
+def _stocks_table(pf: Portfolio, live_status: dict | None) -> str:
     eq = pf.equities()
-    if eq:
-        rows = "".join(
-            f"<tr><td>{html.escape(h.name)}</td>"
-            f"<td>{html.escape(h.symbol or '—')}</td>"
-            f"<td class='num'>{_num_or_dash(h.quantity, '{:,.0f}')}</td>"
-            f"<td class='num'>{_num_or_dash(h.avg_cost)}</td>"
-            f"<td class='num'>{_num_or_dash(h.price)}</td>"
-            f"<td>{_px_source(h)}</td>"
-            f"<td class='num'>{_rupees(h.invested)}</td>"
-            f"<td class='num'>{_cell_val(h)}</td>"
-            f"<td class='num'>{_cell_pl(h)}</td>"
-            f"<td class='num'>{_cell_ret(h)}</td></tr>"
-            for h in sorted(eq, key=lambda x: x.current_value, reverse=True))
-        out.append(
-            "<h2>Stocks — live price vs your cost</h2><div class='card' style='overflow-x:auto'>"
-            "<table class='ttable'><thead><tr>"
-            "<th>Stock</th><th>Symbol</th><th class='num'>Qty</th><th class='num'>Avg cost</th>"
-            "<th class='num'>Price</th><th>Src</th><th class='num'>Invested</th>"
-            "<th class='num'>Cur. value</th><th class='num'>P/L</th><th class='num'>Return</th>"
-            f"</tr></thead><tbody>{rows}</tbody></table>"
-            "<p class='muted' style='font-size:12px;margin:8px 0 0'>Current value = "
-            "<b>Price × Qty</b> (computed here, not copied from your sheet). "
-            "<span class='src live'>live</span> = fetched now · "
-            "<span class='src entered'>your price</span> = the Current price you typed."
-            "</p></div>")
+    if not eq:
+        return "<div class='card'><p class='muted'>No direct stocks in this upload.</p></div>"
+    live_names = set((live_status or {}).get("equity_live", []))
+    rows = "".join(
+        f"<tr><td>{html.escape(h.name)}</td>"
+        f"<td>{html.escape(h.symbol or '—')}</td>"
+        f"<td class='num'>{_num_or_dash(h.quantity, '{:,.0f}')}</td>"
+        f"<td class='num'>{_num_or_dash(h.avg_cost)}</td>"
+        f"<td class='num'>{_num_or_dash(h.price)}</td>"
+        f"<td>{_px_source(h, live_names)}</td>"
+        f"<td class='num'>{_rupees(h.invested)}</td>"
+        f"<td class='num'>{_cell_val(h)}</td>"
+        f"<td class='num'>{_cell_pl(h)}</td>"
+        f"<td class='num'>{_cell_ret(h)}</td></tr>"
+        for h in sorted(eq, key=lambda x: x.current_value, reverse=True))
+    return (
+        "<div class='card' style='overflow-x:auto'>"
+        "<table class='ttable'><thead><tr>"
+        "<th>Stock</th><th>Symbol</th><th class='num'>Qty</th><th class='num'>Avg cost</th>"
+        "<th class='num'>Price</th><th>Src</th><th class='num'>Invested</th>"
+        "<th class='num'>Cur. value</th><th class='num'>P/L</th><th class='num'>Return</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+        "<p class='muted' style='font-size:12px;margin:8px 0 0'>Current value = "
+        "<b>Price × Qty</b> (computed here, not copied from your sheet). "
+        "<span class='src live'>live</span> = fetched now · "
+        "<span class='src entered'>your price</span> = the Current price you typed."
+        "</p></div>")
 
+
+def _funds_table(pf: Portfolio, live_status: dict | None) -> str:
     funds = pf.funds()
-    if funds:
-        spark = (live_status or {}).get("nav_spark", {})
+    if not funds:
+        return "<div class='card'><p class='muted'>No mutual funds in this upload.</p></div>"
+    spark = (live_status or {}).get("nav_spark", {})
 
-        def _units_cell(h):
-            if h.quantity is None:
-                return "—"
-            tag = " <span class='src entered'>est</span>" if h.units_estimated else ""
-            return f"{h.quantity:,.2f}{tag}"
+    def _units_cell(h):
+        if h.quantity is None:
+            return "—"
+        tag = " <span class='src entered'>est</span>" if h.units_estimated else ""
+        return f"{h.quantity:,.2f}{tag}"
 
-        def _nav_cell(h):
-            nav = _num_or_dash(h.price, "{:,.4f}")
-            sv = spark.get(h.name)
-            if sv:
-                return (f"{nav} <details class='spark'><summary>📈</summary>"
-                        f"<div class='sparkbox'>{sv}<div class='sparkcap'>6-month NAV trend</div>"
-                        f"</div></details>")
-            return nav
+    def _nav_cell(h):
+        nav = _num_or_dash(h.price, "{:,.4f}")
+        sv = spark.get(h.name)
+        if sv:
+            return (f"{nav} <details class='spark'><summary>📈</summary>"
+                    f"<div class='sparkbox'>{sv}<div class='sparkcap'>6-month NAV trend</div>"
+                    f"</div></details>")
+        return nav
 
-        rows = "".join(
-            f"<tr><td>{html.escape(h.name)}</td>"
-            f"<td>{html.escape(h.category or '—')}</td>"
-            f"<td class='num'>{_units_cell(h)}</td>"
-            f"<td class='num'>{_nav_cell(h)}</td>"
-            f"<td class='num'>{_rupees(h.invested) if h.invested else '—'}</td>"
-            f"<td class='num'>{_cell_val(h)}</td>"
-            f"<td class='num'>{_cell_pl(h)}</td></tr>"
-            for h in funds)
-        est_note = ""
-        if (live_status or {}).get("units_estimated"):
-            est_note = ("<b>est</b> = units estimated by simulating your monthly SIP "
-                        "against NAV history (needs a <b>SIP Start</b> date; approximate). ")
-        out.append(
-            "<h2>Mutual funds — NAV &amp; value</h2><div class='card' style='overflow-x:auto'>"
-            "<table class='ttable'><thead><tr>"
-            "<th>Fund</th><th>Category</th><th class='num'>Units</th><th class='num'>NAV</th>"
-            "<th class='num'>Invested</th><th class='num'>Cur. value</th><th class='num'>P/L</th>"
-            "</tr></thead><tbody>{}</tbody></table>"
-            "<p class='muted' style='font-size:12px;margin:8px 0 0'>{}Tap 📈 for the "
-            "6-month NAV trend. Funds with no <b>Units</b> and no SIP start show NAV only — "
-            "add Units (from your CAS) or a SIP Start date to value them.</p></div>"
-            .format(rows, est_note))
+    rows = "".join(
+        f"<tr><td>{html.escape(h.name)}</td>"
+        f"<td>{html.escape(h.category or '—')}</td>"
+        f"<td class='num'>{_units_cell(h)}</td>"
+        f"<td class='num'>{_nav_cell(h)}</td>"
+        f"<td class='num'>{_rupees(h.invested) if h.invested else '—'}</td>"
+        f"<td class='num'>{_cell_val(h)}</td>"
+        f"<td class='num'>{_cell_pl(h)}</td></tr>"
+        for h in funds)
+    est_note = ""
+    if (live_status or {}).get("units_estimated"):
+        est_note = ("<b>est</b> = units estimated by simulating your monthly SIP "
+                    "against NAV history (needs a <b>SIP Start</b> date; approximate). ")
+    return (
+        "<div class='card' style='overflow-x:auto'>"
+        "<table class='ttable'><thead><tr>"
+        "<th>Fund</th><th>Category</th><th class='num'>Units</th><th class='num'>NAV</th>"
+        "<th class='num'>Invested</th><th class='num'>Cur. value</th><th class='num'>P/L</th>"
+        "</tr></thead><tbody>{}</tbody></table>"
+        "<p class='muted' style='font-size:12px;margin:8px 0 0'>{}Tap 📈 for the "
+        "6-month NAV trend. Funds with no <b>Units</b> and no SIP start show NAV only — "
+        "add Units (from your CAS) or a SIP Start date to value them.</p></div>"
+        .format(rows, est_note))
+
+
+def _holdings_tables(pf: Portfolio, live_status: dict | None) -> str:
+    """Combined tables (kept for callers/tests that want both at once)."""
+    out = []
+    if pf.equities():
+        out.append("<h2>Stocks — live price vs your cost</h2>"
+                   + _stocks_table(pf, live_status))
+    if pf.funds():
+        out.append("<h2>Mutual funds — NAV &amp; value</h2>"
+                   + _funds_table(pf, live_status))
     return "".join(out)
+
+
+# tab whose content each suggestion rule belongs under
+_FUND_SUGGESTION_RULES = {"mf_category_overlap"}
+
+
+def _split_suggestions(sugs):
+    fund = [s for s in sugs if s.rule in _FUND_SUGGESTION_RULES]
+    stock = [s for s in sugs if s.rule not in _FUND_SUGGESTION_RULES]
+    return stock, fund
 
 
 def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
@@ -414,6 +389,7 @@ def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
 
     high_flags = sum(1 for s in sugs if s.severity == "high")
     warn_flags = sum(1 for s in sugs if s.severity == "warn")
+    stock_sugs, fund_sugs = _split_suggestions(sugs)
 
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -467,13 +443,22 @@ h2{{font-size:17px;margin:30px 0 12px}}
 .lamb{{background:#fffaeb;color:#b54708}}
 code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 .ver{{font-size:12px;font-weight:600;color:#fff;background:#3b82f6;border-radius:20px;padding:2px 9px;vertical-align:middle}}
-.lbanner{{background:#eff8ff;border:1px solid #b2ddff;color:#175cd3;border-radius:10px;padding:10px 14px;margin:14px 0 4px;font-size:13px}}
-.lbnote{{color:#344054;font-size:12px;margin-top:5px}}
 .src{{font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em}}
 .src.live{{background:#ecfdf3;color:#067647}}
 .src.entered{{background:#fffaeb;color:#b54708}}
 .src.cost{{background:#f2f4f7;color:#667085}}
 .dlbtn{{display:inline-block;background:#067647;color:#fff;text-decoration:none;font-weight:600;font-size:13px;padding:9px 16px;border-radius:8px;margin:14px 0 0}}
+.tabs{{margin-top:14px}}
+.tabradio{{position:absolute;opacity:0;pointer-events:none}}
+.tabbar{{display:flex;gap:4px;border-bottom:2px solid var(--line);margin:0 0 6px}}
+.tabbar label{{padding:10px 20px;cursor:pointer;font-weight:650;font-size:15px;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px;user-select:none}}
+.tabbar label:hover{{color:var(--ink)}}
+#tab-stocks:checked ~ .tabbar label[for=tab-stocks],
+#tab-funds:checked ~ .tabbar label[for=tab-funds]{{color:var(--ink);border-bottom-color:#3b82f6}}
+.tabpane{{display:none}}
+#tab-stocks:checked ~ #pane-stocks,
+#tab-funds:checked ~ #pane-funds{{display:block}}
+.tabpane h2:first-child{{margin-top:14px}}
 .spark{{display:inline-block;margin-left:4px}}
 .spark summary{{cursor:pointer;list-style:none}}
 .spark summary::-webkit-details-marker{{display:none}}
@@ -485,34 +470,46 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 <div class="sub">Generated {now} · valued on {basis} ·
 <span class="pill" style="background:#fef3f2;color:#b42318">{high_flags} high</span>
 <span class="pill" style="background:#fffaeb;color:#b54708">{warn_flags} review</span></div>
-{_live_banner(pf, live_status)}
 <div class="kpis">{kpi_html}</div>
 
 <h2>Profit &amp; loss</h2>
 {_pl_section(a)}
 {_download_button(download_name, download_b64)}
-{_holdings_tables(pf, live_status)}
 
-<h2>Restructuring suggestions</h2>
-{_suggestions_html(sugs)}
+<div class="tabs">
+  <input type="radio" name="tab" id="tab-stocks" class="tabradio" checked>
+  <input type="radio" name="tab" id="tab-funds" class="tabradio">
+  <div class="tabbar">
+    <label for="tab-stocks">📈 Stocks</label>
+    <label for="tab-funds">💼 Mutual Funds</label>
+  </div>
 
-<h2>Tax impact of exiting flagged positions</h2>
-{_tax_section(a, sugs)}
+  <div class="tabpane" id="pane-stocks">
+    <h2>Holdings — live price vs your cost</h2>
+    {_stocks_table(pf, live_status)}
+    <h2>Suggestions &amp; considerations</h2>
+    {_suggestions_html(stock_sugs)}
+    <h2>Tax impact of exiting flagged positions</h2>
+    {_tax_section(a, sugs)}
+    <h2>Single-stock concentration</h2>
+    <div class="card">{_bars(a.by_stock, a.equity_total, "#3b82f6")}</div>
+    <h2>Thematic exposure</h2>
+    <div class="card">{_bars(a.by_theme, a.equity_total, "#8b5cf6")}</div>
+    <h2>Risk-flag exposure</h2>
+    <div class="card">{_bars(a.by_risk, a.equity_total, "#ef4444")}</div>
+  </div>
 
-<h2>Look-through exposure (funds + direct)</h2>
-{_lookthrough_section(a)}
-
-<h2>Single-stock concentration</h2>
-<div class="card">{_bars(a.by_stock, a.equity_total, "#3b82f6")}</div>
-
-<h2>Thematic exposure</h2>
-<div class="card">{_bars(a.by_theme, a.equity_total, "#8b5cf6")}</div>
-
-<h2>Risk-flag exposure</h2>
-<div class="card">{_bars(a.by_risk, a.equity_total, "#ef4444")}</div>
-
-<h2>SIP allocation by category</h2>
-<div class="card">{_bars(a.sip_by_category, a.sip_total_monthly, "#10b981")}</div>
+  <div class="tabpane" id="pane-funds">
+    <h2>Your funds — NAV &amp; value</h2>
+    {_funds_table(pf, live_status)}
+    <h2>Suggestions &amp; considerations</h2>
+    {_suggestions_html(fund_sugs)}
+    <h2>Look-through exposure (funds + direct)</h2>
+    {_lookthrough_section(a)}
+    <h2>SIP allocation by category</h2>
+    <div class="card">{_bars(a.sip_by_category, a.sip_total_monthly, "#10b981")}</div>
+  </div>
+</div>
 
 <p class="disc"><strong>Not investment advice.</strong> This dashboard is a
 rule-based organisational tool built from data you provided. Figures use {basis};

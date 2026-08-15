@@ -67,7 +67,7 @@ def test_report_renders():
     pf, a, sugs = _analyse()
     html = build_dashboard(pf, a, sugs)
     assert "<!doctype html>" in html.lower()
-    assert "Restructuring suggestions" in html
+    assert "Suggestions &amp; considerations" in html
 
 
 def test_pl_layer():
@@ -391,7 +391,7 @@ def test_webapp_assemble_and_analyze():
     htmlout = webapp.analyze_parts(parts)
     assert "<!doctype html>" in htmlout.lower()
     assert "Profit &amp; loss" in htmlout or "Profit & loss" in htmlout
-    assert "Restructuring suggestions" in htmlout
+    assert "Suggestions &amp; considerations" in htmlout
 
 
 def test_webapp_http_end_to_end():
@@ -412,7 +412,7 @@ def test_webapp_http_end_to_end():
         conn.request("GET", "/sample")          # runs analysis on bundled data
         r = conn.getresponse()
         assert r.status == 200
-        assert b"Restructuring suggestions" in r.read()
+        assert b"Suggestions &amp; considerations" in r.read()
     finally:
         srv.shutdown()
 
