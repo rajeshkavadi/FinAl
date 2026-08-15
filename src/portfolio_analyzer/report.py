@@ -293,7 +293,8 @@ def _holdings_tables(pf: Portfolio, live_status: dict | None) -> str:
         if h.price is None:
             return "<span class='src cost'>no price</span>"
         if h.name in live_names:
-            return "<span class='src live'>live</span>"
+            src = f" ({html.escape(h.price_source)})" if h.price_source else ""
+            return f"<span class='src live'>live{src}</span>"
         return "<span class='src entered'>your price</span>"
 
     def _cell_val(h):

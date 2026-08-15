@@ -53,6 +53,7 @@ class Holding:
     notes: str = ""
     isin: Optional[str] = None
     symbol: Optional[str] = None    # ticker for live equity price lookups
+    price_source: Optional[str] = None  # where the live price came from (NSE/BSE/Screener/…)
     scheme_code: Optional[str] = None  # AMFI code for live NAV lookups
     # SIP-specific
     monthly_sip: Optional[float] = None

@@ -137,21 +137,28 @@ class YahooEquityProvider:
             return None
 
     def price(self, ticker: str) -> Optional[float]:
-        # a fully-qualified ticker (with exchange suffix) is used as-is;
-        # a bare symbol is tried on NSE then BSE (many SME names list on BSE)
+        return self.price_source(ticker)[0]
+
+    def price_source(self, ticker: str) -> tuple[Optional[float], Optional[str]]:
+        """Return (price, source-label). Tries, in order: Yahoo NSE, Yahoo BSE,
+        NSE quote API, Screener.in. The label names which one answered."""
         if "." in ticker:
-            return self._chart_price(ticker)
+            p = self._chart_price(ticker)
+            src = "BSE" if ticker.upper().endswith(".BO") else "NSE"
+            return (p, src if p is not None else None)
         base = ticker.strip().upper()
-        for suffix in (".NS", ".BO"):
+        for suffix, label in ((".NS", "NSE"), (".BO", "BSE")):
             p = self._chart_price(base + suffix)
             if p is not None:
-                return p
-        # last resorts for SME scrips Yahoo doesn't carry: NSE's quote API,
-        # then Screener.in (HTML). Both best-effort, silent on failure.
+                return p, label
+        # last resorts for SME scrips Yahoo doesn't carry (best-effort, silent)
         p = NSEQuoteProvider(self.timeout).price(base)
         if p is not None:
-            return p
-        return ScreenerProvider(self.timeout).price(base)
+            return p, "NSE API"
+        p = ScreenerProvider(self.timeout).price(base)
+        if p is not None:
+            return p, "Screener"
+        return None, None
 
 
 class NSEQuoteProvider:
@@ -514,11 +521,15 @@ def enrich_live(pf: Portfolio, *, equities: bool = True, funds: bool = True,
                 tk = h.symbol or yp.resolve_symbol(h.name)
                 if not tk:
                     return "no_symbol"      # can't even identify the stock
-                p = yp.price(tk)
+                if hasattr(yp, "price_source"):
+                    p, src = yp.price_source(tk)
+                else:                        # injected test doubles expose only price()
+                    p, src = yp.price(tk), None
                 if p is None:
                     return "no_quote"       # known ticker, but no live data (SME/unlisted on source)
                 h.price = p
                 h.symbol = tk               # remember what we resolved to
+                h.price_source = src
                 return "ok"
 
             # fetch in parallel with a bounded pool so N stocks take ~one

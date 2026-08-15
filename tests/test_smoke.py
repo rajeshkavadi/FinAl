@@ -728,11 +728,29 @@ def test_holdings_table_renders_live_vs_cost():
     pf = Portfolio()
     pf.holdings.append(Holding(name="Arman", asset_type=AssetType.EQUITY,
                                invested=800000, quantity=485, avg_cost=1645,
-                               price=1969.4, symbol="ARMANFIN"))
+                               price=1969.4, symbol="ARMANFIN", price_source="NSE"))
     html = _holdings_tables(pf, {"equity_live": ["Arman"]})
     assert "Arman" in html and "ARMANFIN" in html
-    assert "live" in html                          # source chip
+    assert "live (NSE)" in html                     # source shown in brackets
     assert "Stocks — live price vs your cost" in html
+
+
+def test_price_source_labels_each_provider():
+    from portfolio_analyzer.prices import YahooEquityProvider
+    import portfolio_analyzer.prices as P
+    yp = YahooEquityProvider()
+    # only BSE has it on Yahoo
+    yp._chart_price = lambda tk: 42.0 if tk.endswith(".BO") else None
+    assert yp.price_source("AFCOM") == (42.0, "BSE")
+    # nothing on Yahoo -> Screener answers
+    yp._chart_price = lambda tk: None
+    o_n, o_s = P.NSEQuoteProvider, P.ScreenerProvider
+    P.NSEQuoteProvider = lambda *a, **k: type("N", (), {"price": lambda self, s: None})()
+    P.ScreenerProvider = lambda *a, **k: type("S", (), {"price": lambda self, s: 441.0})()
+    try:
+        assert yp.price_source("FLYSBS") == (441.0, "Screener")
+    finally:
+        P.NSEQuoteProvider, P.ScreenerProvider = o_n, o_s
 
 
 def test_estimate_units_from_sip():
