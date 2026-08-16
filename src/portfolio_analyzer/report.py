@@ -389,9 +389,6 @@ def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
 
     _, fund_sugs = _split_suggestions(sugs)
     repl_sugs = [s for s in sugs if s.rule == "replacement_candidate"]
-    shown = repl_sugs + fund_sugs
-    high_flags = sum(1 for s in shown if s.severity == "high")
-    warn_flags = sum(1 for s in shown if s.severity == "warn")
 
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -469,9 +466,6 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 .disc{{margin-top:34px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}}
 </style></head><body><div class="wrap">
 <h1>{html.escape(title)} <span class="ver">v{_ver}</span></h1>
-<div class="sub">Generated {now} · valued on {basis} ·
-<span class="pill" style="background:#fef3f2;color:#b42318">{high_flags} high</span>
-<span class="pill" style="background:#fffaeb;color:#b54708">{warn_flags} review</span></div>
 <div class="kpis">{kpi_html}</div>
 
 <div class="tabs">
@@ -516,8 +510,8 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 </div>
 
 <p class="disc"><strong>Not investment advice.</strong> This dashboard is a
-rule-based organisational tool built from data you provided. Figures use {basis};
-verify all prices/quantities against your broker/demat statements. Capital-gains
-tax on any switch is not computed here. Consult a SEBI-registered investment
-adviser before acting.</p>
+rule-based organisational tool built from data you provided. Generated {now};
+figures use {basis}; verify all prices/quantities against your broker/demat
+statements. Capital-gains tax on any switch is not computed here. Consult a
+SEBI-registered investment adviser before acting.</p>
 </div></body></html>"""
