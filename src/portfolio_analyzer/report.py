@@ -233,6 +233,16 @@ def _download_button(name: str | None, b64: str | None) -> str:
             f"⬇ Download your workbook with live prices filled in</a>")
 
 
+def _drive_status_html(status) -> str:
+    """Render the Google Drive sync outcome (empty when not configured)."""
+    if not status:
+        return ""
+    ok, msg = status
+    cls = "drok" if ok else "drerr"
+    tick = "✓ Google Drive: " if ok else "Google Drive sync skipped — "
+    return f"<div class='drivenote {cls}'>{tick}{html.escape(msg)}</div>"
+
+
 def _px_source(h, live_names) -> str:
     if h.price is None:
         return "<span class='src cost'>no price</span>"
@@ -367,7 +377,8 @@ def build_dashboard(pf: Portfolio, a: Analysis, sugs: list[Suggestion],
                     *, title: str = "Portfolio Analysis",
                     live_status: dict | None = None,
                     download_name: str | None = None,
-                    download_b64: str | None = None) -> str:
+                    download_b64: str | None = None,
+                    drive_status=None) -> str:
     now = _dt.datetime.now().strftime("%d %b %Y, %H:%M")
     basis = ("live/market value" if any(h.valued_on_market for h in pf.holdings)
              else "invested (cost) basis")
@@ -447,6 +458,9 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
 .src.entered{{background:#fffaeb;color:#b54708}}
 .src.cost{{background:#f2f4f7;color:#667085}}
 .dlbtn{{display:inline-block;background:#067647;color:#fff;text-decoration:none;font-weight:600;font-size:13px;padding:9px 16px;border-radius:8px;margin:14px 0 0}}
+.drivenote{{font-size:13px;margin:8px 0 0;padding:8px 12px;border-radius:8px}}
+.drivenote.drok{{background:#ecfdf3;color:#067647;border:1px solid #a6f4c5}}
+.drivenote.drerr{{background:#fffaeb;color:#b54708;border:1px solid #fedf89}}
 .tabs{{margin-top:14px}}
 .tabradio{{position:absolute;opacity:0;pointer-events:none}}
 .tabbar{{display:flex;gap:4px;border-bottom:2px solid var(--line);margin:0 0 6px}}
@@ -480,6 +494,7 @@ code{{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}}
     <h2>Profit &amp; loss</h2>
     {_pl_section(a)}
     {_download_button(download_name, download_b64)}
+    {_drive_status_html(drive_status)}
     <h2>Holdings — live price vs your cost</h2>
     {_stocks_table(pf, live_status)}
     <h2>Replace with a better-fit equity</h2>

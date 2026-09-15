@@ -845,6 +845,91 @@ def test_price_falls_through_to_screener():
         P.NSEQuoteProvider, P.ScreenerProvider = orig_nse, orig_scr
 
 
+def test_gdrive_config_from_env_and_json(monkeypatch, tmp_path):
+    from portfolio_analyzer import gdrive
+    # not configured -> (None, None)
+    monkeypatch.delenv(gdrive.ENV_CREDS, raising=False)
+    monkeypatch.delenv(gdrive.ENV_FILE_ID, raising=False)
+    assert gdrive.load_config(tmp_path) == (None, None)
+    assert gdrive.is_configured(tmp_path) is False
+    # a gdrive.json next to the app, with a relative creds path
+    (tmp_path / "svc.json").write_text("{}")
+    (tmp_path / "gdrive.json").write_text(
+        '{"credentials": "svc.json", "file_id": "FILE123"}')
+    creds, fid = gdrive.load_config(tmp_path)
+    assert fid == "FILE123" and creds.endswith("svc.json")
+    assert gdrive.is_configured(tmp_path) is True
+    # env vars take precedence
+    monkeypatch.setenv(gdrive.ENV_CREDS, str(tmp_path / "svc.json"))
+    monkeypatch.setenv(gdrive.ENV_FILE_ID, "ENVID")
+    assert gdrive.load_config(tmp_path)[1] == "ENVID"
+
+
+def test_gdrive_push_bytes_uses_drive_update(monkeypatch):
+    """push_bytes wires creds->drive.files().update() and reports success,
+    without importing the real google libraries."""
+    import sys
+    import types
+    from portfolio_analyzer import gdrive
+
+    calls = {}
+
+    # fake google.oauth2.service_account
+    sa = types.ModuleType("google.oauth2.service_account")
+    sa.Credentials = types.SimpleNamespace(
+        from_service_account_file=lambda path, scopes=None: ("creds", tuple(scopes or ())))
+    oauth2 = types.ModuleType("google.oauth2"); oauth2.service_account = sa
+    google = types.ModuleType("google"); google.oauth2 = oauth2
+
+    # fake googleapiclient.discovery.build + http.MediaInMemoryUpload
+    class _Exec:
+        def execute(self):
+            return {"id": "FILE123", "name": "Investments.xlsx"}
+
+    class _Files:
+        def update(self, **kw):
+            calls.update(kw)
+            return _Exec()
+
+    class _Svc:
+        def files(self):
+            return _Files()
+
+    disc = types.ModuleType("googleapiclient.discovery")
+    disc.build = lambda *a, **k: _Svc()
+    httpmod = types.ModuleType("googleapiclient.http")
+    httpmod.MediaInMemoryUpload = lambda data, mimetype=None, resumable=False: ("media", len(data))
+    gac = types.ModuleType("googleapiclient")
+
+    for name, mod in {
+        "google": google, "google.oauth2": oauth2,
+        "google.oauth2.service_account": sa,
+        "googleapiclient": gac, "googleapiclient.discovery": disc,
+        "googleapiclient.http": httpmod,
+    }.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    ok, msg = gdrive.push_bytes("FILE123", b"xlsxbytes", "/tmp/svc.json")
+    assert ok is True and "Investments.xlsx" in msg
+    assert calls["fileId"] == "FILE123" and calls["supportsAllDrives"] is True
+
+
+def test_gdrive_push_workbook_skips_when_unconfigured(monkeypatch, tmp_path):
+    from portfolio_analyzer import gdrive
+    monkeypatch.delenv(gdrive.ENV_CREDS, raising=False)
+    monkeypatch.delenv(gdrive.ENV_FILE_ID, raising=False)
+    assert gdrive.push_workbook(b"data", base_dir=tmp_path) is None   # nothing to do
+
+
+def test_drive_status_renders_in_dashboard():
+    from portfolio_analyzer.report import _drive_status_html
+    assert _drive_status_html(None) == ""
+    ok_html = _drive_status_html((True, "updated “Investments.xlsx” in Google Drive"))
+    assert "Google Drive" in ok_html and "drok" in ok_html
+    err_html = _drive_status_html((False, "Permission denied — share the sheet"))
+    assert "skipped" in err_html and "drerr" in err_html
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

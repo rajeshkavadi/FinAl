@@ -167,6 +167,7 @@ def analyze_parts(parts: dict[str, dict]) -> str:
 
         # offer the user's workbook back with live prices filled into it
         dl_name = dl_b64 = None
+        drive_status = None
         ppath = pf.meta.get("portfolio_path")
         if want_live and ppath and str(ppath).lower().endswith((".xlsx", ".xlsm")):
             try:
@@ -177,12 +178,19 @@ def analyze_parts(parts: dict[str, dict]) -> str:
                     dl_b64 = base64.b64encode(data).decode("ascii")
                     orig = pf.meta.get("portfolio_name", "portfolio.xlsx")
                     dl_name = orig.rsplit(".", 1)[0] + "-live.xlsx"
+                    # optional: also push the refreshed workbook to Google Drive
+                    try:
+                        from portfolio_analyzer.gdrive import push_workbook
+                        drive_status = push_workbook(data, base_dir=Path.cwd())
+                    except Exception as e:
+                        drive_status = (False, str(e))
             except Exception:
                 pass  # a write-back failure must never break the dashboard
 
         return build_dashboard(pf, a, sugs, title="Portfolio Analysis",
                                live_status=live_status,
-                               download_name=dl_name, download_b64=dl_b64)
+                               download_name=dl_name, download_b64=dl_b64,
+                               drive_status=drive_status)
 
 
 def _cg_page(res, tax) -> str:

@@ -30,7 +30,7 @@ jobs:
       - name: Install app + build tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install . pyinstaller pypdf
+          python -m pip install ".[gdrive]" pyinstaller pypdf
 
       - name: Freeze to a single .exe
         run: >
@@ -38,6 +38,9 @@ jobs:
           --collect-all portfolio_analyzer
           --collect-all openpyxl
           --collect-all pypdf
+          --collect-all googleapiclient
+          --collect-all google_auth_httplib2
+          --collect-all google.auth
           --hidden-import openpyxl --hidden-import pypdf
           packaging/launcher.py
 
