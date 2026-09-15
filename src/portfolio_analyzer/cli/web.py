@@ -181,7 +181,7 @@ def analyze_parts(parts: dict[str, dict]) -> str:
                     # optional: also push the refreshed workbook to Google Drive
                     try:
                         from portfolio_analyzer.gdrive import push_workbook
-                        drive_status = push_workbook(data, base_dir=Path.cwd())
+                        drive_status = push_workbook(data)   # auto-discovers config
                     except Exception as e:
                         drive_status = (False, str(e))
             except Exception:

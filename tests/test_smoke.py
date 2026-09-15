@@ -930,6 +930,21 @@ def test_drive_status_renders_in_dashboard():
     assert "skipped" in err_html and "drerr" in err_html
 
 
+def test_gdrive_autodiscovers_appdata_and_frozen(monkeypatch, tmp_path):
+    from portfolio_analyzer import gdrive
+    monkeypatch.delenv(gdrive.ENV_CREDS, raising=False)
+    monkeypatch.delenv(gdrive.ENV_FILE_ID, raising=False)
+    # a gdrive.json in the LocalAppData install dir is found without base_dir
+    appdir = tmp_path / "PortfolioAnalyzer"
+    appdir.mkdir()
+    (appdir / "svc.json").write_text("{}")
+    (appdir / "gdrive.json").write_text('{"credentials":"svc.json","file_id":"APPID"}')
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.chdir(tmp_path)                    # cwd has no config
+    creds, fid = gdrive.load_config()              # no base_dir -> auto-discover
+    assert fid == "APPID" and creds.endswith("svc.json")
+
+
 if __name__ == "__main__":
     passed = 0
     for name, fn in sorted(globals().items()):

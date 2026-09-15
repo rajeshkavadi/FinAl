@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -35,13 +36,17 @@ def load_config(base_dir: str | Path | None = None) -> tuple[Optional[str], Opti
     """Resolve (credentials_path, file_id) from env vars, else a gdrive.json.
 
     Returns (None, None) when not configured — the caller then simply skips the
-    Drive push, keeping the app fully offline by default.
+    Drive push, keeping the app fully offline by default. When ``base_dir`` is
+    None, a ``gdrive.json`` is looked for across the likely locations (next to a
+    frozen .exe, the LocalAppData install dir, and the current directory).
     """
     creds = os.environ.get(ENV_CREDS)
     file_id = os.environ.get(ENV_FILE_ID)
-    if not (creds and file_id) and base_dir:
-        cfg = Path(base_dir) / "gdrive.json"
-        if cfg.is_file():
+    if not (creds and file_id):
+        for d in ([Path(base_dir)] if base_dir else _candidate_dirs()):
+            cfg = d / "gdrive.json"
+            if not cfg.is_file():
+                continue
             try:
                 data = json.loads(cfg.read_text(encoding="utf-8"))
             except (ValueError, OSError):
@@ -50,8 +55,28 @@ def load_config(base_dir: str | Path | None = None) -> tuple[Optional[str], Opti
             file_id = file_id or data.get("file_id")
             # a relative credentials path is resolved next to the config file
             if creds and not os.path.isabs(creds):
-                creds = str(Path(base_dir) / creds)
+                creds = str(d / creds)
+            break
     return (creds or None, file_id or None)
+
+
+def _candidate_dirs() -> list[Path]:
+    """Where a gdrive.json / service_account.json might sit, most specific first:
+    next to a frozen .exe, the LocalAppData install dir, then the current dir."""
+    dirs: list[Path] = []
+    if getattr(sys, "frozen", False):          # PyInstaller onefile
+        dirs.append(Path(sys.executable).resolve().parent)
+    appdata = os.environ.get("LOCALAPPDATA")
+    if appdata:
+        dirs.append(Path(appdata) / "PortfolioAnalyzer")
+    dirs.append(Path.cwd())
+    # de-dupe while preserving order
+    seen, out = set(), []
+    for d in dirs:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
 
 
 def is_configured(base_dir: str | Path | None = None) -> bool:
