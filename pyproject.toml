@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portfolio-analyzer"
-version = "0.9.1"
+version = "0.9.2"
 description = "Local MF + direct-equity portfolio analyzer, monitor and restructuring advisor (India)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,8 +15,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pdf = ["pdfplumber>=0.10"]   # CAS PDF parsing
+pdf = ["pdfplumber>=0.10"]   # CAS/CG PDF parsing (desktop)
 gdrive = ["google-api-python-client>=2.100", "google-auth>=2.30"]  # optional Drive sync
+# 'mobile' = every feature using ONLY pure-Python deps (no Pillow/cryptography),
+# so it installs on Pydroid 3 / Termux without any compilation:
+#   pypdf         -> CAS/CG PDF read + decrypt (code falls back to it)
+#   google-*      -> Drive sync (google-auth signs via pure-python rsa)
+mobile = ["pypdf>=4", "google-api-python-client>=2.100", "google-auth>=2.30"]
 dev = ["pytest>=7"]
 
 [project.scripts]
