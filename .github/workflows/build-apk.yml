@@ -1,7 +1,9 @@
 name: build-android-apk
 
 # Experimental: build a debug APK with Buildozer (python-for-android 'webview'
-# bootstrap wrapping the local web app). Manual + on changes to the packaging.
+# bootstrap wrapping the local web app). Run Buildozer directly on a pinned
+# Ubuntu (the third-party buildozer-action's Docker image breaks on newer
+# runner images).
 on:
   workflow_dispatch:
   push:
@@ -16,20 +18,32 @@ permissions:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Stage the app package into the APK source dir
         run: |
           cp -r src/portfolio_analyzer packaging/android_apk/portfolio_analyzer
-          ls -R packaging/android_apk | head -50
 
-      - name: Build the debug APK (Buildozer)
-        uses: ArtemSBulgakov/buildozer-action@v1
+      - uses: actions/setup-python@v5
         with:
-          command: buildozer android debug
-          workdir: packaging/android_apk
+          python-version: '3.11'
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip openjdk-17-jdk autoconf libtool pkg-config \
+            zlib1g-dev libncurses-dev libffi-dev libssl-dev \
+            build-essential ccache libltdl-dev
+
+      - name: Install Buildozer + Cython
+        run: pip install --upgrade "cython<3" buildozer
+
+      - name: Build the debug APK
+        working-directory: packaging/android_apk
+        run: buildozer -v android debug
 
       - name: Show what was produced
         if: always()

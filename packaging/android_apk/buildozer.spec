@@ -16,6 +16,7 @@ android.archs = arm64-v8a
 p4a.bootstrap = webview
 p4a.port = 5000
 android.presplash_color = #f7f8fa
+android.accept_sdk_license = True
 
 [buildozer]
 log_level = 2
