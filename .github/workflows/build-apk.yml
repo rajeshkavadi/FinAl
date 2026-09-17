@@ -1,0 +1,52 @@
+name: build-android-apk
+
+# Experimental: build a debug APK with Buildozer (python-for-android 'webview'
+# bootstrap wrapping the local web app). Manual + on changes to the packaging.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/android_apk/**'
+      - '.github/workflows/build-apk.yml'
+      - 'src/portfolio_analyzer/**'
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the app package into the APK source dir
+        run: |
+          cp -r src/portfolio_analyzer packaging/android_apk/portfolio_analyzer
+          ls -R packaging/android_apk | head -50
+
+      - name: Build the debug APK (Buildozer)
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android debug
+          workdir: packaging/android_apk
+
+      - name: Show what was produced
+        if: always()
+        run: ls -la packaging/android_apk/bin || true
+
+      - name: Upload APK as a workflow artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PortfolioAnalyzer-apk
+          path: packaging/android_apk/bin/*.apk
+
+      - name: Publish APK to the android-build release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-build
+          name: Android build (experimental)
+          prerelease: true
+          files: packaging/android_apk/bin/*.apk
