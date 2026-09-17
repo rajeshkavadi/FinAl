@@ -19,6 +19,9 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-22.04
+    env:
+      # modern Android Gradle Plugin needs JDK 17 (runner defaults to 11)
+      JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
     steps:
       - uses: actions/checkout@v4
 
